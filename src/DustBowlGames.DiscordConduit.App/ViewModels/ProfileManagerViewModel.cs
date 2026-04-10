@@ -128,16 +128,17 @@ public partial class ProfileManagerViewModel : ObservableObject
                 return;
             }
 
-            _services.Connect(token);
+            await _services.ConnectAsync(token);
 
             // Verify connection by calling GET /users/@me
             var botUser = await _services.RestClient!.GetAsync<User>("/users/@me");
             IsConnected = true;
-            ConnectedBotName = $"Connected as {botUser.DisplayName}";
+            var botStatus = _services.IsBotRunning ? " (bot running)" : "";
+            ConnectedBotName = $"Connected as {botUser.DisplayName}{botStatus}";
             _onConnectionChanged(true);
 
-            Log.Logger.Information("Connected to Discord as {BotName} ({BotId})",
-                botUser.DisplayName, botUser.Id);
+            Log.Logger.Information("Connected to Discord as {BotName} ({BotId}), gateway: {GatewayRunning}",
+                botUser.DisplayName, botUser.Id, _services.IsBotRunning);
         }
         catch (Exception ex)
         {

@@ -121,6 +121,83 @@ public sealed class DiscordRestClient : IDisposable
     }
 
     /// <summary>
+    /// Sends a POST request with a JSON body, expecting no response body (204 No Content).
+    /// </summary>
+    /// <param name="path">API path.</param>
+    /// <param name="body">The object to serialize as JSON.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public async Task PostJsonNoResponseAsync(string path, object body, CancellationToken ct = default)
+    {
+        var routeKey = RateLimiter.GetRouteKey(HttpMethod.Post, path);
+        var response = await _rateLimiter.ExecuteAsync(
+            _httpClient,
+            routeKey,
+            () =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Post, path);
+                request.Content = JsonContent.Create(body, options: JsonOptions);
+                return request;
+            },
+            ct);
+
+        response.EnsureSuccessStatusCode();
+    }
+
+    /// <summary>
+    /// Sends a PUT request with a JSON body.
+    /// </summary>
+    /// <typeparam name="TResponse">The type to deserialize the response body into.</typeparam>
+    /// <param name="path">API path.</param>
+    /// <param name="body">The object to serialize as JSON.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The deserialized response.</returns>
+    public async Task<TResponse> PutJsonAsync<TResponse>(string path, object body, CancellationToken ct = default)
+    {
+        var routeKey = RateLimiter.GetRouteKey(HttpMethod.Put, path);
+        var response = await _rateLimiter.ExecuteAsync(
+            _httpClient,
+            routeKey,
+            () =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Put, path);
+                request.Content = JsonContent.Create(body, options: JsonOptions);
+                return request;
+            },
+            ct);
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
+        return result ?? throw new InvalidOperationException($"Null response from PUT {path}");
+    }
+
+    /// <summary>
+    /// Sends a PATCH request with a JSON body.
+    /// </summary>
+    /// <typeparam name="TResponse">The type to deserialize the response body into.</typeparam>
+    /// <param name="path">API path.</param>
+    /// <param name="body">The object to serialize as JSON.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The deserialized response.</returns>
+    public async Task<TResponse> PatchJsonAsync<TResponse>(string path, object body, CancellationToken ct = default)
+    {
+        var routeKey = RateLimiter.GetRouteKey(HttpMethod.Patch, path);
+        var response = await _rateLimiter.ExecuteAsync(
+            _httpClient,
+            routeKey,
+            () =>
+            {
+                var request = new HttpRequestMessage(HttpMethod.Patch, path);
+                request.Content = JsonContent.Create(body, options: JsonOptions);
+                return request;
+            },
+            ct);
+
+        response.EnsureSuccessStatusCode();
+        var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
+        return result ?? throw new InvalidOperationException($"Null response from PATCH {path}");
+    }
+
+    /// <summary>
     /// Sends a PUT request (used for reactions).
     /// </summary>
     /// <param name="path">API path.</param>

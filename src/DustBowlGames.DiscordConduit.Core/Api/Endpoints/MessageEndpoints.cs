@@ -42,4 +42,26 @@ public sealed class MessageEndpoints
 
         return _client.GetAsync<List<Message>>(path, ct);
     }
+
+    /// <summary>
+    /// Deletes a single message from a channel.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="messageId">The message's snowflake ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task DeleteMessageAsync(string channelId, string messageId, CancellationToken ct = default)
+    {
+        return _client.DeleteAsync($"/channels/{channelId}/messages/{messageId}", ct);
+    }
+
+    /// <summary>
+    /// Bulk deletes messages from a channel (2-100 messages, must be less than 14 days old).
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="messageIds">A list of message snowflake IDs to delete (2-100).</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task BulkDeleteMessagesAsync(string channelId, List<string> messageIds, CancellationToken ct = default)
+    {
+        return _client.PostJsonNoResponseAsync($"/channels/{channelId}/messages/bulk-delete", new { messages = messageIds }, ct);
+    }
 }

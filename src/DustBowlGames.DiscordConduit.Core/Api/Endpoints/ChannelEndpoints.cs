@@ -43,6 +43,18 @@ public sealed class ChannelEndpoints
     }
 
     /// <summary>
+    /// Creates a new public thread in a channel.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="name">The name of the thread.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The created thread channel.</returns>
+    public Task<Channel> CreateThreadAsync(string channelId, string name, CancellationToken ct = default)
+    {
+        return _client.PostJsonAsync<Channel>($"/channels/{channelId}/threads", new { name, type = 11 }, ct);
+    }
+
+    /// <summary>
     /// Internal response wrapper for the active threads endpoint.
     /// </summary>
     internal sealed class ActiveThreadsResponse
