@@ -39,9 +39,9 @@ public sealed class MigrationState
     [JsonPropertyName("webhook_id")]
     public required string WebhookId { get; set; }
 
-    /// <summary>The token of the webhook used for posting messages.</summary>
-    [JsonPropertyName("webhook_token")]
-    public required string WebhookToken { get; set; }
+    /// <summary>The token of the webhook used for posting messages. Not persisted to disk for security.</summary>
+    [JsonIgnore]
+    public string WebhookToken { get; set; } = string.Empty;
 
     /// <summary>When the migration was started.</summary>
     [JsonPropertyName("started_at")]
@@ -113,8 +113,11 @@ public sealed class MigrationState
         var directory = Path.GetDirectoryName(filePath)!;
         Directory.CreateDirectory(directory);
 
+        // Atomic write: write to temp file then rename, so a crash never leaves a partial file
+        var tempPath = filePath + ".tmp";
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        await File.WriteAllTextAsync(filePath, json);
+        await File.WriteAllTextAsync(tempPath, json);
+        File.Move(tempPath, filePath, overwrite: true);
     }
 
     /// <summary>

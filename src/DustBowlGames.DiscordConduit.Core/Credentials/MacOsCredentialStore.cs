@@ -17,8 +17,7 @@ public sealed class MacOsCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         var result = await RunSecurityAsync(
-            "add-generic-password",
-            $"-a \"{Account}\" -s \"{targetKey}\" -w \"{secret}\" -U").ConfigureAwait(false);
+            "add-generic-password", "-a", Account, "-s", targetKey, "-w", secret, "-U").ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -32,8 +31,7 @@ public sealed class MacOsCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         var result = await RunSecurityAsync(
-            "find-generic-password",
-            $"-a \"{Account}\" -s \"{targetKey}\" -w").ConfigureAwait(false);
+            "find-generic-password", "-a", Account, "-s", targetKey, "-w").ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -48,15 +46,14 @@ public sealed class MacOsCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         await RunSecurityAsync(
-            "delete-generic-password",
-            $"-a \"{Account}\" -s \"{targetKey}\"").ConfigureAwait(false);
+            "delete-generic-password", "-a", Account, "-s", targetKey).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<string>> ListKeysAsync(string prefix)
     {
         var fullPrefix = KeyPrefix + prefix;
-        var result = await RunSecurityAsync("dump-keychain", string.Empty).ConfigureAwait(false);
+        var result = await RunSecurityAsync("dump-keychain").ConfigureAwait(false);
         var keys = new List<string>();
 
         if (result.ExitCode != 0)
@@ -90,18 +87,23 @@ public sealed class MacOsCredentialStore : ICredentialStore
         return keys;
     }
 
-    private static async Task<ProcessResult> RunSecurityAsync(string command, string args)
+    private static async Task<ProcessResult> RunSecurityAsync(params string[] args)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
             FileName = "security",
-            Arguments = $"{command} {args}",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+        // Use ArgumentList to avoid shell interpretation of secrets
+        foreach (var arg in args)
+        {
+            process.StartInfo.ArgumentList.Add(arg);
+        }
 
         process.Start();
 

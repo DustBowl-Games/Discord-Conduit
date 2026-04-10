@@ -94,13 +94,14 @@ public sealed class DiscordRestClient : IDisposable
 
     /// <summary>
     /// Sends a POST request with multipart form data (for file uploads).
+    /// Accepts a factory so fresh content can be built on 429 retries (HttpContent is consumed after send).
     /// </summary>
     /// <typeparam name="TResponse">The type to deserialize the response body into.</typeparam>
     /// <param name="path">API path.</param>
-    /// <param name="content">The multipart form data content.</param>
+    /// <param name="contentFactory">Factory that creates fresh multipart content for each attempt.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The deserialized response.</returns>
-    public async Task<TResponse> PostMultipartAsync<TResponse>(string path, MultipartFormDataContent content, CancellationToken ct = default)
+    public async Task<TResponse> PostMultipartAsync<TResponse>(string path, Func<MultipartFormDataContent> contentFactory, CancellationToken ct = default)
     {
         var routeKey = RateLimiter.GetRouteKey(HttpMethod.Post, path);
         var response = await _rateLimiter.ExecuteAsync(
@@ -109,7 +110,7 @@ public sealed class DiscordRestClient : IDisposable
             () =>
             {
                 var request = new HttpRequestMessage(HttpMethod.Post, path);
-                request.Content = content;
+                request.Content = contentFactory();
                 return request;
             },
             ct);

@@ -42,6 +42,17 @@ public sealed class WebhookEndpoints
     }
 
     /// <summary>
+    /// Gets a webhook by its ID.
+    /// </summary>
+    /// <param name="webhookId">The webhook's snowflake ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The webhook, or throws if not found.</returns>
+    public Task<Webhook> GetWebhookAsync(string webhookId, CancellationToken ct = default)
+    {
+        return _client.GetAsync<Webhook>($"/webhooks/{webhookId}", ct);
+    }
+
+    /// <summary>
     /// Creates a new webhook for a channel.
     /// </summary>
     /// <param name="channelId">The channel's snowflake ID.</param>
@@ -81,11 +92,11 @@ public sealed class WebhookEndpoints
     /// </summary>
     /// <param name="webhookId">The webhook's snowflake ID.</param>
     /// <param name="webhookToken">The webhook's token.</param>
-    /// <param name="content">The multipart form data content including files.</param>
+    /// <param name="contentFactory">Factory that creates fresh multipart content for each attempt (supports 429 retries).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The created message.</returns>
-    public Task<Message> ExecuteWebhookWithFilesAsync(string webhookId, string webhookToken, MultipartFormDataContent content, CancellationToken ct = default)
+    public Task<Message> ExecuteWebhookWithFilesAsync(string webhookId, string webhookToken, Func<MultipartFormDataContent> contentFactory, CancellationToken ct = default)
     {
-        return _client.PostMultipartAsync<Message>($"/webhooks/{webhookId}/{webhookToken}?wait=true", content, ct);
+        return _client.PostMultipartAsync<Message>($"/webhooks/{webhookId}/{webhookToken}?wait=true", contentFactory, ct);
     }
 }

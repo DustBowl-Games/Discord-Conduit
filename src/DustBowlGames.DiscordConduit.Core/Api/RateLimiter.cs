@@ -13,12 +13,11 @@ public sealed class RateLimiter
 {
     private readonly ConcurrentDictionary<string, BucketState> _buckets = new();
     private readonly ConcurrentDictionary<string, string> _routeToBucket = new();
-    private readonly SemaphoreSlim _globalLock = new(1, 1);
     private readonly ILogger _logger;
     private readonly TimeProvider _timeProvider;
 
-    // Global rate limit: 50 requests per second
-    private DateTimeOffset _globalResetAt = DateTimeOffset.MinValue;
+    // Global rate limit: stored as ticks for atomic access via Interlocked
+    private long _globalResetAtTicks = DateTimeOffset.MinValue.UtcTicks;
 
     /// <summary>
     /// Creates a new rate limiter.
@@ -59,7 +58,8 @@ public sealed class RateLimiter
 
             if (response.Headers.Contains("X-RateLimit-Global"))
             {
-                _globalResetAt = _timeProvider.GetUtcNow() + retryAfter;
+                var newResetTicks = (_timeProvider.GetUtcNow() + retryAfter).UtcTicks;
+                Interlocked.Exchange(ref _globalResetAtTicks, newResetTicks);
             }
 
             await DelayAsync(retryAfter, ct);
@@ -133,7 +133,8 @@ public sealed class RateLimiter
     private async Task WaitForGlobalAsync(CancellationToken ct)
     {
         var now = _timeProvider.GetUtcNow();
-        var delay = _globalResetAt - now;
+        var globalResetAt = new DateTimeOffset(Interlocked.Read(ref _globalResetAtTicks), TimeSpan.Zero);
+        var delay = globalResetAt - now;
         if (delay > TimeSpan.Zero)
         {
             _logger.Debug("Waiting {Delay:F2}s for global rate limit reset", delay.TotalSeconds);

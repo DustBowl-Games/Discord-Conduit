@@ -19,6 +19,8 @@ public sealed class AppServices : IDisposable
     public ProfileManager ProfileManager { get; }
     public string AppDataPath { get; }
 
+    private HttpClient? _cdnHttpClient;
+
     // These are created on Connect and disposed on Disconnect
     public DiscordRestClient? RestClient { get; private set; }
     public GuildEndpoints? Guilds { get; private set; }
@@ -58,7 +60,8 @@ public sealed class AppServices : IDisposable
         Reactions = new ReactionEndpoints(RestClient);
 
         var messageMigrator = new MessageMigrator(Log.Logger);
-        var attachmentHandler = new AttachmentHandler(new HttpClient(), Log.Logger);
+        _cdnHttpClient = new HttpClient();
+        var attachmentHandler = new AttachmentHandler(_cdnHttpClient, Log.Logger);
 
         Migration = new MigrationEngine(
             Messages, Webhooks, Reactions, Channels,
@@ -73,6 +76,8 @@ public sealed class AppServices : IDisposable
     /// </summary>
     public void Disconnect()
     {
+        _cdnHttpClient?.Dispose();
+        _cdnHttpClient = null;
         RestClient?.Dispose();
         RestClient = null;
         Guilds = null;

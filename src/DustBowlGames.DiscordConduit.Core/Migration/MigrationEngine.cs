@@ -154,6 +154,14 @@ public sealed class MigrationEngine
         {
             webhook = await _webhookEndpoints.CreateWebhookAsync(
                 options.DestinationChannelId, "Discord Conduit Migration", ct);
+
+            if (string.IsNullOrEmpty(webhook.Token))
+            {
+                throw new InvalidOperationException(
+                    $"Discord returned a webhook without a token (ID: {webhook.Id}). " +
+                    "The bot may lack MANAGE_WEBHOOKS permission.");
+            }
+
             _logger.Information("Created webhook {WebhookId} in channel {ChannelId}",
                 webhook.Id, options.DestinationChannelId);
         }
@@ -233,7 +241,15 @@ public sealed class MigrationEngine
         state.TotalMessageCount = state.MigratedCount + remainingMessages.Count;
         state.Phase = MigrationPhase.MigratingMessages;
 
-        var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, ct);
+        // For reactions, we need ALL source messages (including already-migrated ones),
+        // not just the remaining slice, so reactions for previously migrated messages aren't skipped
+        List<Message>? allMessagesForReactions = null;
+        if (state.Options.IncludeReactions && !state.Options.DryRun)
+        {
+            allMessagesForReactions = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
+        }
+
+        var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, ct, allMessagesForReactions);
 
         // Clean up webhook if not a dry run
         if (!state.Options.DryRun)
@@ -261,7 +277,8 @@ public sealed class MigrationEngine
         Webhook webhook,
         Stopwatch stopwatch,
         IProgress<MigrationProgress> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        List<Message>? allMessagesForReactions = null)
     {
         var skipped = 0;
 
@@ -300,14 +317,15 @@ public sealed class MigrationEngine
             ReportProgress(state, skipped, stopwatch.Elapsed, progress);
         }
 
-        // Reaction migration phase
+        // Reaction migration phase — use full message list if provided (resume case),
+        // otherwise use the messages we just processed (fresh migration case)
         if (state.Options.IncludeReactions && !state.Options.DryRun)
         {
             state.Phase = MigrationPhase.MigratingReactions;
             await state.SaveAsync(_appDataPath);
             ReportProgress(state, skipped, stopwatch.Elapsed, progress);
 
-            await MigrateReactionsAsync(state, messages, ct);
+            await MigrateReactionsAsync(state, allMessagesForReactions ?? messages, ct);
         }
 
         // Finalize
@@ -400,11 +418,10 @@ public sealed class MigrationEngine
                 files.Add(downloaded);
             }
 
-            using var multipartContent = _attachmentHandler.CreateMultipartContent(
-                content, username, avatarUrl, richEmbeds, files);
-
             repostedMessage = await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
-                webhook.Id, webhook.Token!, multipartContent, ct);
+                webhook.Id, webhook.Token!,
+                () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
+                ct);
         }
         else
         {
@@ -562,17 +579,15 @@ public sealed class MigrationEngine
 
         try
         {
-            // Try to use the existing webhook by executing a simple check.
-            // If the webhook was deleted, this will throw and we create a new one.
-            var channel = await _channelEndpoints.GetChannelAsync(state.DestinationChannelId, ct);
-            _logger.Debug("Destination channel {ChannelId} verified", channel.Id);
-
-            // Return a webhook object with the saved ID and token
-            return new Webhook { Id = state.WebhookId, Token = state.WebhookToken };
+            // Fetch the webhook by ID to get its token (token is not persisted to disk for security)
+            var webhook = await _webhookEndpoints.GetWebhookAsync(state.WebhookId, ct);
+            state.WebhookToken = webhook.Token ?? string.Empty;
+            _logger.Debug("Verified existing webhook {WebhookId}", webhook.Id);
+            return webhook;
         }
         catch (Exception ex)
         {
-            _logger.Warning(ex, "Could not verify webhook, creating a new one");
+            _logger.Warning(ex, "Webhook {WebhookId} no longer exists, creating a new one", state.WebhookId);
 
             var webhook = await _webhookEndpoints.CreateWebhookAsync(
                 state.DestinationChannelId, "Discord Conduit Migration", ct);
