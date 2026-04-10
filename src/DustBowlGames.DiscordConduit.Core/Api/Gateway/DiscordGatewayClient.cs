@@ -25,6 +25,7 @@ public sealed class DiscordGatewayClient : IDisposable
     private string? _sessionId;
     private string? _resumeGatewayUrl;
     private bool _heartbeatAcked = true;
+    private TaskCompletionSource _readyTcs = new();
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -71,11 +72,25 @@ public sealed class DiscordGatewayClient : IDisposable
 
         _logger.Information("Connecting to gateway: {Url}", url);
 
+        _readyTcs = new TaskCompletionSource();
         _cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         _ws = new ClientWebSocket();
         await _ws.ConnectAsync(new Uri(url), _cts.Token);
 
         _receiveTask = Task.Run(() => ReceiveLoopAsync(_cts.Token), _cts.Token);
+
+        // Wait for the READY event so ApplicationId is available when ConnectAsync returns
+        using var readyTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, readyTimeout.Token);
+        try
+        {
+            await _readyTcs.Task.WaitAsync(linked.Token);
+        }
+        catch (OperationCanceledException) when (readyTimeout.IsCancellationRequested)
+        {
+            _logger.Error("Timed out waiting for gateway READY event");
+            throw new TimeoutException("Gateway did not send READY within 30 seconds. Check your bot token and intents.");
+        }
     }
 
     /// <summary>
@@ -268,6 +283,7 @@ public sealed class DiscordGatewayClient : IDisposable
                         IsConnected = true;
                         _logger.Information("Gateway READY, session={SessionId}, app={AppId}",
                             _sessionId, ApplicationId);
+                        _readyTcs.TrySetResult();
                     }
                 }
                 break;
