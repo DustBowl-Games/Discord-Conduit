@@ -121,9 +121,9 @@ public sealed class GuildMember
 /// </summary>
 public sealed class InteractionData
 {
-    /// <summary>Name of the invoked command.</summary>
+    /// <summary>Name of the invoked command. Null for component interactions.</summary>
     [JsonPropertyName("name")]
-    public required string Name { get; init; }
+    public string? Name { get; init; }
 
     /// <summary>Command type (1 = ChatInput, 2 = User, 3 = Message).</summary>
     [JsonPropertyName("type")]
