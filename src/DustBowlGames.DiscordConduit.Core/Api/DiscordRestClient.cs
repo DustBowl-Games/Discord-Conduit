@@ -12,6 +12,7 @@ namespace DustBowlGames.DiscordConduit.Core.Api;
 public sealed class DiscordRestClient : IDisposable
 {
     /// <summary>Discord API base URL.</summary>
+    /// <summary>Discord API base URL.</summary>
     public const string BaseUrl = "https://discord.com/api/v10";
 
     private readonly HttpClient _httpClient;
@@ -36,13 +37,17 @@ public sealed class DiscordRestClient : IDisposable
     {
         _ownsHttpClient = httpClient is null;
         _httpClient = httpClient ?? new HttpClient();
-        _httpClient.BaseAddress ??= new Uri(BaseUrl);
+        // Don't use BaseAddress — relative URI resolution with paths is unreliable.
+        // Instead, BuildUrl() prepends the base URL to all paths.
         _httpClient.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bot", botToken);
         _httpClient.DefaultRequestHeaders.Add("User-Agent", "DiscordConduit (https://github.com/DustBowlGames/discord-conduit, 1.0)");
 
         _rateLimiter = new RateLimiter(logger, timeProvider);
         _logger = logger;
     }
+
+    /// <summary>Constructs a full URL from a relative API path.</summary>
+    private static string BuildUrl(string path) => $"{BaseUrl}{path}";
 
     /// <summary>
     /// Sends a GET request to the Discord API.
@@ -57,7 +62,7 @@ public sealed class DiscordRestClient : IDisposable
         var response = await _rateLimiter.ExecuteAsync(
             _httpClient,
             routeKey,
-            () => new HttpRequestMessage(HttpMethod.Get, path),
+            () => new HttpRequestMessage(HttpMethod.Get, BuildUrl(path)),
             ct);
 
         response.EnsureSuccessStatusCode();
@@ -81,7 +86,7 @@ public sealed class DiscordRestClient : IDisposable
             routeKey,
             () =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, path);
+                var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl(path));
                 request.Content = JsonContent.Create(body, options: JsonOptions);
                 return request;
             },
@@ -109,7 +114,7 @@ public sealed class DiscordRestClient : IDisposable
             routeKey,
             () =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, path);
+                var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl(path));
                 request.Content = contentFactory();
                 return request;
             },
@@ -134,7 +139,7 @@ public sealed class DiscordRestClient : IDisposable
             routeKey,
             () =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Post, path);
+                var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl(path));
                 request.Content = JsonContent.Create(body, options: JsonOptions);
                 return request;
             },
@@ -159,7 +164,7 @@ public sealed class DiscordRestClient : IDisposable
             routeKey,
             () =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Put, path);
+                var request = new HttpRequestMessage(HttpMethod.Put, BuildUrl(path));
                 request.Content = JsonContent.Create(body, options: JsonOptions);
                 return request;
             },
@@ -186,7 +191,7 @@ public sealed class DiscordRestClient : IDisposable
             routeKey,
             () =>
             {
-                var request = new HttpRequestMessage(HttpMethod.Patch, path);
+                var request = new HttpRequestMessage(HttpMethod.Patch, BuildUrl(path));
                 request.Content = JsonContent.Create(body, options: JsonOptions);
                 return request;
             },
@@ -208,7 +213,7 @@ public sealed class DiscordRestClient : IDisposable
         var response = await _rateLimiter.ExecuteAsync(
             _httpClient,
             routeKey,
-            () => new HttpRequestMessage(HttpMethod.Put, path),
+            () => new HttpRequestMessage(HttpMethod.Put, BuildUrl(path)),
             ct);
 
         response.EnsureSuccessStatusCode();
@@ -225,7 +230,7 @@ public sealed class DiscordRestClient : IDisposable
         var response = await _rateLimiter.ExecuteAsync(
             _httpClient,
             routeKey,
-            () => new HttpRequestMessage(HttpMethod.Delete, path),
+            () => new HttpRequestMessage(HttpMethod.Delete, BuildUrl(path)),
             ct);
 
         response.EnsureSuccessStatusCode();
