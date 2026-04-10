@@ -340,7 +340,7 @@ public sealed class MoveCommandHandler
         if (messages.Count == 0) return 0;
 
         // Create a webhook in the destination
-        var webhook = await _webhookEndpoints.CreateWebhookAsync(destChannelId, "Discord Conduit Move");
+        var webhook = await _webhookEndpoints.CreateWebhookAsync(destChannelId, "Conduit Move");
 
         if (string.IsNullOrEmpty(webhook.Token))
         {

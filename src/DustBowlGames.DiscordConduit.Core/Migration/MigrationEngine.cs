@@ -153,7 +153,7 @@ public sealed class MigrationEngine
         else
         {
             webhook = await _webhookEndpoints.CreateWebhookAsync(
-                options.DestinationChannelId, "Discord Conduit Migration", ct);
+                options.DestinationChannelId, "Conduit Migration", ct);
 
             if (string.IsNullOrEmpty(webhook.Token))
             {
@@ -590,7 +590,7 @@ public sealed class MigrationEngine
             _logger.Warning(ex, "Webhook {WebhookId} no longer exists, creating a new one", state.WebhookId);
 
             var webhook = await _webhookEndpoints.CreateWebhookAsync(
-                state.DestinationChannelId, "Discord Conduit Migration", ct);
+                state.DestinationChannelId, "Conduit Migration", ct);
 
             state.WebhookId = webhook.Id;
             state.WebhookToken = webhook.Token ?? string.Empty;
