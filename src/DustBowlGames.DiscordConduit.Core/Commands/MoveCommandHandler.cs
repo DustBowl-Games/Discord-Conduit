@@ -279,7 +279,8 @@ public sealed class MoveCommandHandler
             return;
         }
 
-        await _interactionEndpoints.DeferAsync(interaction.Id, interaction.Token);
+        // Component interactions use type 6 (DEFERRED_UPDATE_MESSAGE), not type 5
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
 
         try
         {
@@ -287,20 +288,7 @@ public sealed class MoveCommandHandler
             {
                 case "move_single":
                 {
-                    var messages = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 1);
-                    var message = messages.FirstOrDefault(m => m.Id == targetMessageId);
-                    if (message is null)
-                    {
-                        // Fetch the specific message by getting a small range around it
-                        var around = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 1, before: targetMessageId);
-                        message = around.FirstOrDefault(m => m.Id == targetMessageId);
-                    }
-
-                    if (message is null)
-                    {
-                        await EditOriginalAsync(interaction.Token, "Could not find the message to move.");
-                        return;
-                    }
+                    var message = await _messageEndpoints.GetMessageAsync(sourceChannelId, targetMessageId);
 
                     await MoveMessagesToDestinationAsync([message], destChannelId);
                     await DeleteMessagesAsync(sourceChannelId, [message]);

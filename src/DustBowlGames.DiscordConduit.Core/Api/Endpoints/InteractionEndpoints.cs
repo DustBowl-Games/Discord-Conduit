@@ -40,6 +40,18 @@ public sealed class InteractionEndpoints
     }
 
     /// <summary>
+    /// Defers a component interaction response (type 6 = DEFERRED_UPDATE_MESSAGE).
+    /// Use this instead of DeferAsync for interactions triggered by message components (buttons, select menus).
+    /// </summary>
+    /// <param name="interactionId">The interaction's snowflake ID.</param>
+    /// <param name="interactionToken">The interaction token.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task DeferComponentAsync(string interactionId, string interactionToken, CancellationToken ct = default)
+    {
+        return _client.PostJsonNoResponseAsync($"/interactions/{interactionId}/{interactionToken}/callback", new { type = 6 }, ct);
+    }
+
+    /// <summary>
     /// Sends a follow-up message after deferring an interaction response.
     /// </summary>
     /// <param name="applicationId">The application's snowflake ID.</param>

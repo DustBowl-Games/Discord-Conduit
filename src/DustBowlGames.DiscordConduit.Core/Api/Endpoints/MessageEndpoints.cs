@@ -44,6 +44,18 @@ public sealed class MessageEndpoints
     }
 
     /// <summary>
+    /// Gets a single message by ID.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="messageId">The message's snowflake ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The message.</returns>
+    public Task<Message> GetMessageAsync(string channelId, string messageId, CancellationToken ct = default)
+    {
+        return _client.GetAsync<Message>($"/channels/{channelId}/messages/{messageId}", ct);
+    }
+
+    /// <summary>
     /// Deletes a single message from a channel.
     /// </summary>
     /// <param name="channelId">The channel's snowflake ID.</param>
