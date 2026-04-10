@@ -8,7 +8,8 @@ using Serilog;
 namespace DustBowlGames.DiscordConduit.Core.Commands;
 
 /// <summary>
-/// Handles all move-related slash commands and context menu commands.
+/// Handles all move-related slash commands and context menu commands using a
+/// Pippin-style multi-step interaction flow with modals, select menus, and buttons.
 /// Supports: Move Message, Move This &amp; Below, move-range, move-thread.
 /// </summary>
 public sealed class MoveCommandHandler
@@ -19,6 +20,7 @@ public sealed class MoveCommandHandler
     private readonly InteractionEndpoints _interactionEndpoints;
     private readonly MessageMigrator _messageMigrator;
     private readonly AttachmentHandler _attachmentHandler;
+    private readonly InteractionStateStore _stateStore;
     private readonly string _applicationId;
     private readonly ILogger _logger;
 
@@ -37,6 +39,15 @@ public sealed class MoveCommandHandler
     /// <summary>
     /// Creates a new move command handler.
     /// </summary>
+    /// <param name="messageEndpoints">Message API endpoints.</param>
+    /// <param name="webhookEndpoints">Webhook API endpoints.</param>
+    /// <param name="channelEndpoints">Channel API endpoints.</param>
+    /// <param name="interactionEndpoints">Interaction API endpoints.</param>
+    /// <param name="messageMigrator">Message migration helper.</param>
+    /// <param name="attachmentHandler">Attachment download/upload helper.</param>
+    /// <param name="stateStore">In-memory session store for multi-step interactions.</param>
+    /// <param name="applicationId">The bot's application ID.</param>
+    /// <param name="logger">Logger instance.</param>
     public MoveCommandHandler(
         MessageEndpoints messageEndpoints,
         WebhookEndpoints webhookEndpoints,
@@ -44,6 +55,7 @@ public sealed class MoveCommandHandler
         InteractionEndpoints interactionEndpoints,
         MessageMigrator messageMigrator,
         AttachmentHandler attachmentHandler,
+        InteractionStateStore stateStore,
         string applicationId,
         ILogger logger)
     {
@@ -53,48 +65,15 @@ public sealed class MoveCommandHandler
         _interactionEndpoints = interactionEndpoints;
         _messageMigrator = messageMigrator;
         _attachmentHandler = attachmentHandler;
+        _stateStore = stateStore;
         _applicationId = applicationId;
         _logger = logger;
     }
 
     /// <summary>
-    /// Handles an incoming interaction. Dispatches to the correct handler based on command name and type.
-    /// </summary>
-    public async Task HandleInteractionAsync(InteractionCreateEvent interaction)
-    {
-        if (interaction.Data is null) return;
-
-        try
-        {
-            switch (interaction.Data.Name)
-            {
-                case MoveMessageCommand:
-                    await HandleMoveMessageAsync(interaction);
-                    break;
-                case MoveThisBelowCommand:
-                    await HandleMoveThisBelowAsync(interaction);
-                    break;
-                case MoveRangeCommand:
-                    await HandleMoveRangeAsync(interaction);
-                    break;
-                case MoveThreadCommand:
-                    await HandleMoveThreadAsync(interaction);
-                    break;
-                default:
-                    _logger.Warning("Unknown command: {CommandName}", interaction.Data.Name);
-                    break;
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.Error(ex, "Error handling command {CommandName}", interaction.Data.Name);
-            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
-        }
-    }
-
-    /// <summary>
     /// Returns the list of application command definitions to register with Discord.
     /// </summary>
+    /// <returns>A list of application commands.</returns>
     public static List<ApplicationCommand> GetCommandDefinitions()
     {
         return
@@ -139,33 +118,218 @@ public sealed class MoveCommandHandler
         ];
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Entry point 1: Application commands (type 2)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles an incoming application command interaction (type 2).
+    /// Dispatches to the correct handler based on command name.
+    /// </summary>
+    /// <param name="interaction">The interaction event.</param>
+    public async Task HandleInteractionAsync(InteractionCreateEvent interaction)
+    {
+        if (interaction.Data is null) return;
+
+        try
+        {
+            switch (interaction.Data.Name)
+            {
+                case MoveMessageCommand:
+                    await HandleMoveMessageAsync(interaction);
+                    break;
+                case MoveThisBelowCommand:
+                    await HandleMoveThisBelowAsync(interaction);
+                    break;
+                case MoveRangeCommand:
+                    await HandleMoveRangeAsync(interaction);
+                    break;
+                case MoveThreadCommand:
+                    await HandleMoveThreadAsync(interaction);
+                    break;
+                default:
+                    _logger.Warning("Unknown command: {CommandName}", interaction.Data.Name);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Error handling command {CommandName}", interaction.Data.Name);
+            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Entry point 2: Component interactions (type 3)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles a message component interaction (type 3) such as buttons and select menus.
+    /// Routes by custom_id to the appropriate step in the multi-step flow.
+    /// </summary>
+    /// <param name="interaction">The interaction event.</param>
+    public async Task HandleComponentAsync(InteractionCreateEvent interaction)
+    {
+        if (interaction.Data is null) return;
+
+        var customId = interaction.Data.CustomId;
+        if (customId is null) return;
+
+        try
+        {
+            switch (customId)
+            {
+                case "move_action":
+                    await HandleActionSelectAsync(interaction);
+                    break;
+                case "move_dest":
+                    await HandleDestinationSelectAsync(interaction);
+                    break;
+                case "move_yes":
+                    await HandleConfirmYesAsync(interaction);
+                    break;
+                case "move_no":
+                    await HandleConfirmNoAsync(interaction);
+                    break;
+                case "move_delete":
+                    await HandleDeleteOriginalsAsync(interaction);
+                    break;
+                case "move_keep":
+                    await HandleKeepOriginalsAsync(interaction);
+                    break;
+                default:
+                    // Handle legacy slash-command delete/keep buttons with session key in custom_id
+                    if (customId.StartsWith("move_slash_delete:", StringComparison.Ordinal))
+                        await HandleSlashDeleteAsync(interaction, customId);
+                    else if (customId.StartsWith("move_slash_keep:", StringComparison.Ordinal))
+                        await HandleSlashKeepAsync(interaction, customId);
+                    else
+                        _logger.Warning("Unknown component custom_id: {CustomId}", customId);
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Error handling component interaction {CustomId}", customId);
+            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Entry point 3: Modal submissions (type 5)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Handles a modal submission interaction (type 5).
+    /// Parses the count and origin from the modal custom_id and advances to the action select step.
+    /// </summary>
+    /// <param name="interaction">The interaction event.</param>
+    public async Task HandleModalSubmitAsync(InteractionCreateEvent interaction)
+    {
+        if (interaction.Data is null) return;
+
+        try
+        {
+            var customId = interaction.Data.CustomId;
+            if (customId is null || !customId.StartsWith("move_modal:", StringComparison.Ordinal))
+            {
+                _logger.Warning("Unexpected modal custom_id: {CustomId}", customId);
+                return;
+            }
+
+            // Parse move_modal:{channelId}:{messageId}
+            var parts = customId.Split(':');
+            if (parts.Length < 3)
+            {
+                await RespondEphemeralAsync(interaction, "Invalid modal data.");
+                return;
+            }
+
+            var channelId = parts[1];
+            var messageId = parts[2];
+
+            // Parse the count from the modal text input
+            var countText = interaction.Data.Components?[0].Components?[0].Value ?? "1";
+            if (!int.TryParse(countText, out var count) || count < 1)
+            {
+                await RespondEphemeralAsync(interaction, "Please enter a valid number (1 or more).");
+                return;
+            }
+
+            var userId = GetUserId(interaction);
+            var guildId = interaction.GuildId;
+            if (userId is null || guildId is null)
+            {
+                await RespondEphemeralAsync(interaction, "Could not identify user or guild.");
+                return;
+            }
+
+            // Create session
+            var key = InteractionStateStore.Key(userId, guildId);
+            var session = new InteractionSession
+            {
+                UserId = userId,
+                GuildId = guildId,
+                SourceChannelId = channelId,
+                TargetMessageId = messageId,
+                MessageCount = count
+            };
+            _stateStore.Set(key, session);
+
+            // Respond with action select (Step 2)
+            await RespondWithActionSelectAsync(interaction);
+        }
+        catch (Exception ex)
+        {
+            _logger.Error(ex, "Error handling modal submission");
+            await TryRespondEphemeralAsync(interaction, $"Error: {ex.Message}");
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 1: Context Menu handlers
+    // ─────────────────────────────────────────────────────────────────────────
+
     private async Task HandleMoveMessageAsync(InteractionCreateEvent interaction)
     {
-        // Context menu: target_id is the message ID, resolved.messages has the message
         var targetId = interaction.Data!.TargetId;
-        if (targetId is null || interaction.Data.Resolved?.Messages is null)
+        if (targetId is null || interaction.ChannelId is null)
         {
             await RespondEphemeralAsync(interaction, "Could not find the target message.");
             return;
         }
 
-        // Defer — moving takes time
-        await _interactionEndpoints.DeferAsync(interaction.Id, interaction.Token);
-
-        if (!interaction.Data.Resolved.Messages.TryGetValue(targetId, out var message))
+        // Respond with modal asking for count
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
         {
-            await EditOriginalAsync(interaction.Token, "Could not resolve the target message.");
-            return;
-        }
-
-        // For context menu commands, we need the user to specify the destination.
-        // Send a channel select component as follow-up.
-        // For simplicity in v1: check if there's an option named "destination" (there won't be for context menu).
-        // We'll use a channel select component.
-        await EditOriginalAsync(interaction.Token,
-            "Select a destination channel:",
-            channelSelect: true,
-            customId: $"move_single:{interaction.ChannelId}:{targetId}");
+            type = 9,
+            data = new
+            {
+                custom_id = $"move_modal:{interaction.ChannelId}:{targetId}",
+                title = "Move Messages",
+                components = new object[]
+                {
+                    new
+                    {
+                        type = 1,
+                        components = new object[]
+                        {
+                            new
+                            {
+                                type = 4,
+                                custom_id = "count",
+                                label = "How many messages to move?",
+                                style = 1,
+                                placeholder = "1",
+                                required = true,
+                                min_length = 1,
+                                max_length = 4
+                            }
+                        }
+                    }
+                }
+            }
+        });
     }
 
     private async Task HandleMoveThisBelowAsync(InteractionCreateEvent interaction)
@@ -177,13 +341,338 @@ public sealed class MoveCommandHandler
             return;
         }
 
-        await _interactionEndpoints.DeferAsync(interaction.Id, interaction.Token);
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        if (userId is null || guildId is null)
+        {
+            await RespondEphemeralAsync(interaction, "Could not identify user or guild.");
+            return;
+        }
 
-        await EditOriginalAsync(interaction.Token,
-            "Select a destination channel for this message and all below:",
-            channelSelect: true,
-            customId: $"move_below:{interaction.ChannelId}:{targetId}");
+        // Skip modal — go straight to action select with count = -1 (all from here down)
+        var key = InteractionStateStore.Key(userId, guildId);
+        var session = new InteractionSession
+        {
+            UserId = userId,
+            GuildId = guildId,
+            SourceChannelId = interaction.ChannelId,
+            TargetMessageId = targetId,
+            MessageCount = -1
+        };
+        _stateStore.Set(key, session);
+
+        // Respond with action select (Step 2)
+        await RespondWithActionSelectAsync(interaction);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 2: Action select response helper
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private Task RespondWithActionSelectAsync(InteractionCreateEvent interaction)
+    {
+        return _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 4,
+            data = new
+            {
+                content = "Select an action to perform on the messages",
+                flags = 64,
+                components = new object[]
+                {
+                    new
+                    {
+                        type = 1,
+                        components = new object[]
+                        {
+                            new
+                            {
+                                type = 3,
+                                custom_id = "move_action",
+                                options = new object[]
+                                {
+                                    new { label = "Repost into a channel", value = "channel", emoji = new { name = "\U0001F4E2" } },
+                                    new { label = "Repost into a thread/forum", value = "thread", emoji = new { name = "\U0001F9F5" } }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 3: Action select -> Destination select
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleActionSelectAsync(InteractionCreateEvent interaction)
+    {
+        var session = GetSessionOrNull(interaction);
+        if (session is null)
+        {
+            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
+            return;
+        }
+
+        var selectedAction = interaction.Data!.Values?[0];
+        if (selectedAction is null)
+        {
+            await RespondEphemeralAsync(interaction, "No action selected.");
+            return;
+        }
+
+        session.Action = selectedAction;
+
+        // Respond type 7 (UPDATE_MESSAGE) with channel select
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 7,
+            data = new
+            {
+                content = "Select the destination channel",
+                components = new object[]
+                {
+                    new
+                    {
+                        type = 1,
+                        components = new object[]
+                        {
+                            new
+                            {
+                                type = 8,
+                                custom_id = "move_dest",
+                                channel_types = new[] { 0, 5, 10, 11, 12, 15 }
+                            }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 4: Destination select -> Confirmation
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleDestinationSelectAsync(InteractionCreateEvent interaction)
+    {
+        var session = GetSessionOrNull(interaction);
+        if (session is null)
+        {
+            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
+            return;
+        }
+
+        var destId = interaction.Data!.Values?[0];
+        if (destId is null)
+        {
+            await RespondEphemeralAsync(interaction, "No destination selected.");
+            return;
+        }
+
+        session.DestinationId = destId;
+
+        var countDisplay = session.MessageCount == -1 ? "all" : session.MessageCount.ToString();
+
+        // Respond type 7 with confirmation
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 7,
+            data = new
+            {
+                content = $"**Ready to move {countDisplay} message(s)?**\nFrom: <#{session.SourceChannelId}>\nTo: <#{destId}>",
+                components = new object[]
+                {
+                    new
+                    {
+                        type = 1,
+                        components = new object[]
+                        {
+                            new { type = 2, style = 3, label = "Yes", custom_id = "move_yes", emoji = new { name = "\u2705" } },
+                            new { type = 2, style = 4, label = "No", custom_id = "move_no", emoji = new { name = "\u274C" } }
+                        }
+                    }
+                }
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 5a: Confirm Yes -> Execute Move
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleConfirmYesAsync(InteractionCreateEvent interaction)
+    {
+        var session = GetSessionOrNull(interaction);
+        if (session is null)
+        {
+            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
+            return;
+        }
+
+        if (session.DestinationId is null)
+        {
+            await RespondEphemeralAsync(interaction, "No destination set. Please start over.");
+            return;
+        }
+
+        // Defer with type 6 (DEFERRED_UPDATE_MESSAGE)
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
+
+        // Fetch messages
+        List<Message> messages;
+        if (session.MessageCount == -1)
+        {
+            // All from target message downward
+            messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId!);
+        }
+        else if (session.TargetMessageId is not null)
+        {
+            // Specific count starting from target message
+            messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId);
+            if (messages.Count > session.MessageCount)
+                messages = messages.Take(session.MessageCount).ToList();
+        }
+        else
+        {
+            messages = [];
+        }
+
+        if (messages.Count == 0)
+        {
+            await EditOriginalAsync(interaction.Token, "No messages found to move.");
+            return;
+        }
+
+        // Move messages
+        var destId = session.DestinationId;
+        int movedCount;
+
+        if (session.Action == "thread")
+        {
+            // Create a thread in the destination
+            var newThread = await _channelEndpoints.CreateThreadAsync(destId, "Moved Messages");
+            movedCount = await MoveMessagesToDestinationAsync(messages, newThread.Id);
+        }
+        else
+        {
+            movedCount = await MoveMessagesToDestinationAsync(messages, destId);
+        }
+
+        // Store moved messages for potential deletion
+        session.MovedMessages = messages;
+
+        // Edit original with result + cleanup buttons
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
+        {
+            content = $"\u2705 Moved {movedCount} message(s) to <#{destId}>",
+            components = new object[]
+            {
+                new
+                {
+                    type = 1,
+                    components = new object[]
+                    {
+                        new { type = 2, style = 4, label = "Yes, delete original messages", custom_id = "move_delete" },
+                        new { type = 2, style = 2, label = "No, keep original messages", custom_id = "move_keep" }
+                    }
+                }
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 5b: Confirm No -> Cancel
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleConfirmNoAsync(InteractionCreateEvent interaction)
+    {
+        var session = GetSessionOrNull(interaction);
+        if (session is not null)
+        {
+            var userId = GetUserId(interaction);
+            var guildId = interaction.GuildId;
+            if (userId is not null && guildId is not null)
+                _stateStore.Remove(InteractionStateStore.Key(userId, guildId));
+        }
+
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 7,
+            data = new
+            {
+                content = "Move cancelled.",
+                components = Array.Empty<object>()
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 6a: Delete originals
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleDeleteOriginalsAsync(InteractionCreateEvent interaction)
+    {
+        var session = GetSessionOrNull(interaction);
+        if (session?.MovedMessages is null || session.MovedMessages.Count == 0)
+        {
+            await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+            {
+                type = 7,
+                data = new
+                {
+                    content = "No messages to delete (session may have expired).",
+                    components = Array.Empty<object>()
+                }
+            });
+            return;
+        }
+
+        // Defer type 6
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
+
+        var count = session.MovedMessages.Count;
+        await DeleteMessagesAsync(session.SourceChannelId, session.MovedMessages);
+
+        // Clean up session
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        if (userId is not null && guildId is not null)
+            _stateStore.Remove(InteractionStateStore.Key(userId, guildId));
+
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
+        {
+            content = $"\u2705 Moved and deleted {count} message(s).",
+            components = Array.Empty<object>()
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Step 6b: Keep originals
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleKeepOriginalsAsync(InteractionCreateEvent interaction)
+    {
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        if (userId is not null && guildId is not null)
+            _stateStore.Remove(InteractionStateStore.Key(userId, guildId));
+
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 7,
+            data = new
+            {
+                content = "\u2705 Done! Original messages kept.",
+                components = Array.Empty<object>()
+            }
+        });
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Slash commands (simpler flow)
+    // ─────────────────────────────────────────────────────────────────────────
 
     private async Task HandleMoveRangeAsync(InteractionCreateEvent interaction)
     {
@@ -206,8 +695,47 @@ public sealed class MoveCommandHandler
 
         await _interactionEndpoints.DeferAsync(interaction.Id, interaction.Token);
 
-        var movedCount = await MoveMessageRangeAsync(interaction.ChannelId, startId, endId, destId);
-        await EditOriginalAsync(interaction.Token, $"Moved {movedCount} message(s) to <#{destId}>.");
+        var messages = await FetchMessageRangeAsync(interaction.ChannelId, startId, endId);
+        var movedCount = await MoveMessagesToDestinationAsync(messages, destId);
+
+        // Store session for delete/keep buttons
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        var sessionKey = userId is not null && guildId is not null
+            ? InteractionStateStore.Key(userId, guildId)
+            : null;
+
+        if (sessionKey is not null)
+        {
+            _stateStore.Set(sessionKey, new InteractionSession
+            {
+                UserId = userId!,
+                GuildId = guildId!,
+                SourceChannelId = interaction.ChannelId,
+                MessageCount = movedCount,
+                MovedMessages = messages
+            });
+        }
+
+        var deleteId = sessionKey is not null ? $"move_slash_delete:{sessionKey}" : "move_slash_delete:none";
+        var keepId = sessionKey is not null ? $"move_slash_keep:{sessionKey}" : "move_slash_keep:none";
+
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
+        {
+            content = $"\u2705 Moved {movedCount} message(s) to <#{destId}>.",
+            components = new object[]
+            {
+                new
+                {
+                    type = 1,
+                    components = new object[]
+                    {
+                        new { type = 2, style = 4, label = "Yes, delete original messages", custom_id = deleteId },
+                        new { type = 2, style = 2, label = "No, keep original messages", custom_id = keepId }
+                    }
+                }
+            }
+        });
     }
 
     private async Task HandleMoveThreadAsync(InteractionCreateEvent interaction)
@@ -243,97 +771,101 @@ public sealed class MoveCommandHandler
         // Move them to the new thread
         var movedCount = await MoveMessagesToDestinationAsync(messages, newThread.Id);
 
-        // Delete originals
-        await DeleteMessagesAsync(threadId, messages);
+        // Store session for delete/keep buttons
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        var sessionKey = userId is not null && guildId is not null
+            ? InteractionStateStore.Key(userId, guildId)
+            : null;
 
-        await EditOriginalAsync(interaction.Token,
-            $"Moved {movedCount} message(s) from thread **{threadName}** to <#{newThread.Id}>.");
+        if (sessionKey is not null)
+        {
+            _stateStore.Set(sessionKey, new InteractionSession
+            {
+                UserId = userId!,
+                GuildId = guildId!,
+                SourceChannelId = threadId,
+                MessageCount = movedCount,
+                MovedMessages = messages
+            });
+        }
+
+        var deleteId = sessionKey is not null ? $"move_slash_delete:{sessionKey}" : "move_slash_delete:none";
+        var keepId = sessionKey is not null ? $"move_slash_keep:{sessionKey}" : "move_slash_keep:none";
+
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
+        {
+            content = $"\u2705 Moved {movedCount} message(s) from thread **{threadName}** to <#{newThread.Id}>.",
+            components = new object[]
+            {
+                new
+                {
+                    type = 1,
+                    components = new object[]
+                    {
+                        new { type = 2, style = 4, label = "Yes, delete original messages", custom_id = deleteId },
+                        new { type = 2, style = 2, label = "No, keep original messages", custom_id = keepId }
+                    }
+                }
+            }
+        });
     }
 
-    /// <summary>
-    /// Handles the channel select component interaction for context menu commands.
-    /// Call this when receiving a component interaction with a custom_id starting with "move_".
-    /// </summary>
-    public async Task HandleComponentInteractionAsync(InteractionCreateEvent interaction)
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Slash command delete/keep handlers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private async Task HandleSlashDeleteAsync(InteractionCreateEvent interaction, string customId)
     {
-        if (interaction.Data is null) return;
+        var sessionKey = customId["move_slash_delete:".Length..];
+        var session = _stateStore.Get(sessionKey);
 
-        // Component interactions have custom_id in Data.CustomId
-        // and selected values in Data.Values
-        // For now, we parse the custom_id to determine the action
-        var customId = interaction.Data.CustomId;
-        if (customId is null) return;
-
-        var parts = customId.Split(':');
-        if (parts.Length < 3) return;
-
-        var action = parts[0];
-        var sourceChannelId = parts[1];
-        var targetMessageId = parts[2];
-
-        // The selected channel ID comes from the component values
-        var destChannelId = interaction.Data.Values?.FirstOrDefault();
-        if (destChannelId is null)
+        if (session?.MovedMessages is null || session.MovedMessages.Count == 0)
         {
-            await RespondEphemeralAsync(interaction, "No destination channel selected.");
+            await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+            {
+                type = 7,
+                data = new
+                {
+                    content = "No messages to delete (session may have expired).",
+                    components = Array.Empty<object>()
+                }
+            });
             return;
         }
 
-        // Component interactions use type 6 (DEFERRED_UPDATE_MESSAGE), not type 5
         await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
 
-        try
-        {
-            switch (action)
-            {
-                case "move_single":
-                {
-                    var message = await _messageEndpoints.GetMessageAsync(sourceChannelId, targetMessageId);
+        var count = session.MovedMessages.Count;
+        await DeleteMessagesAsync(session.SourceChannelId, session.MovedMessages);
+        _stateStore.Remove(sessionKey);
 
-                    await MoveMessagesToDestinationAsync([message], destChannelId);
-                    await DeleteMessagesAsync(sourceChannelId, [message]);
-                    await EditOriginalAsync(interaction.Token, $"Moved 1 message to <#{destChannelId}>.");
-                    break;
-                }
-                case "move_below":
-                {
-                    var messages = await FetchMessagesFromAsync(sourceChannelId, targetMessageId);
-                    var movedCount = await MoveMessagesToDestinationAsync(messages, destChannelId);
-                    await DeleteMessagesAsync(sourceChannelId, messages);
-                    await EditOriginalAsync(interaction.Token, $"Moved {movedCount} message(s) to <#{destChannelId}>.");
-                    break;
-                }
-            }
-        }
-        catch (Exception ex)
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
         {
-            _logger.Error(ex, "Error handling component interaction {CustomId}", customId);
-            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
-        }
+            content = $"\u2705 Moved and deleted {count} message(s).",
+            components = Array.Empty<object>()
+        });
     }
 
-    private async Task<int> MoveMessageRangeAsync(string sourceChannelId, string startId, string endId, string destChannelId)
+    private async Task HandleSlashKeepAsync(InteractionCreateEvent interaction, string customId)
     {
-        // Fetch messages in the range: get messages after startId, filter up to endId
-        var allMessages = new List<Message>();
-        string? afterId = startId;
+        var sessionKey = customId["move_slash_keep:".Length..];
+        _stateStore.Remove(sessionKey);
 
-        // First, get the start message itself
-        var startMessages = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 100, before: startId);
-        // Actually we need to include the start message — fetch around it
-        var aroundStart = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 100, after: startId);
-
-        // Simpler approach: fetch all messages, then filter by ID range
-        // Discord snowflake IDs are chronologically ordered, so we can compare them
-        var messages = await FetchAllMessagesChronologicalAsync(sourceChannelId);
-        var rangeMessages = messages
-            .Where(m => CompareSnowflakes(m.Id, startId) >= 0 && CompareSnowflakes(m.Id, endId) <= 0)
-            .ToList();
-
-        var movedCount = await MoveMessagesToDestinationAsync(rangeMessages, destChannelId);
-        await DeleteMessagesAsync(sourceChannelId, rangeMessages);
-        return movedCount;
+        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        {
+            type = 7,
+            data = new
+            {
+                content = "\u2705 Done! Original messages kept.",
+                components = Array.Empty<object>()
+            }
+        });
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Message moving logic
+    // ─────────────────────────────────────────────────────────────────────────
 
     private async Task<int> MoveMessagesToDestinationAsync(List<Message> messages, string destChannelId)
     {
@@ -344,7 +876,7 @@ public sealed class MoveCommandHandler
 
         if (string.IsNullOrEmpty(webhook.Token))
         {
-            throw new InvalidOperationException("Failed to create webhook — missing token. Check bot permissions.");
+            throw new InvalidOperationException("Failed to create webhook \u2014 missing token. Check bot permissions.");
         }
 
         var moved = 0;
@@ -415,8 +947,6 @@ public sealed class MoveCommandHandler
 
     private async Task DeleteMessagesAsync(string channelId, List<Message> messages)
     {
-        var messageIds = messages.Select(m => m.Id).ToList();
-
         // Discord bulk delete only works for messages < 14 days old, max 100 at a time
         var fourteenDaysAgo = DateTimeOffset.UtcNow.AddDays(-14);
         var recentIds = new List<string>();
@@ -454,6 +984,10 @@ public sealed class MoveCommandHandler
         }
     }
 
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Message fetching helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
     private async Task<List<Message>> FetchAllMessagesChronologicalAsync(string channelId)
     {
         var all = new List<Message>();
@@ -476,17 +1010,14 @@ public sealed class MoveCommandHandler
     {
         // Fetch the target message and all messages after it
         var all = new List<Message>();
-        string? afterId = fromMessageId;
 
-        // First get messages including the fromMessageId
-        // We need to fetch it specifically since after= is exclusive
-        var beforeBatch = await _messageEndpoints.GetMessagesAsync(channelId, 1, before: fromMessageId);
-        // Actually, let's fetch with a range that includes the target
+        // Fetch messages around the target to include it
         var targetBatch = await _messageEndpoints.GetMessagesAsync(channelId, 100);
         var targetMsg = targetBatch.FirstOrDefault(m => m.Id == fromMessageId);
         if (targetMsg is not null) all.Add(targetMsg);
 
         // Then fetch everything after
+        var afterId = fromMessageId;
         while (true)
         {
             var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, after: afterId);
@@ -500,50 +1031,53 @@ public sealed class MoveCommandHandler
         return all;
     }
 
-    private async Task RespondEphemeralAsync(InteractionCreateEvent interaction, string message)
+    private async Task<List<Message>> FetchMessageRangeAsync(string sourceChannelId, string startId, string endId)
     {
-        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        var messages = await FetchAllMessagesChronologicalAsync(sourceChannelId);
+        return messages
+            .Where(m => CompareSnowflakes(m.Id, startId) >= 0 && CompareSnowflakes(m.Id, endId) <= 0)
+            .ToList();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Utility helpers
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static string? GetUserId(InteractionCreateEvent interaction)
+    {
+        return interaction.Member?.User?.Id ?? interaction.User?.Id;
+    }
+
+    private InteractionSession? GetSessionOrNull(InteractionCreateEvent interaction)
+    {
+        var userId = GetUserId(interaction);
+        var guildId = interaction.GuildId;
+        if (userId is null || guildId is null) return null;
+        return _stateStore.Get(InteractionStateStore.Key(userId, guildId));
+    }
+
+    private Task RespondEphemeralAsync(InteractionCreateEvent interaction, string message)
+    {
+        return _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
         {
             type = 4,
-            data = new { content = message, flags = 64 } // 64 = ephemeral
+            data = new { content = message, flags = 64 }
         });
     }
 
-    private async Task EditOriginalAsync(string interactionToken, string content,
-        bool channelSelect = false, string? customId = null)
+    private async Task TryRespondEphemeralAsync(InteractionCreateEvent interaction, string message)
     {
-        if (channelSelect && customId is not null)
+        try { await RespondEphemeralAsync(interaction, message); }
+        catch (Exception ex) { _logger.Warning(ex, "Failed to send ephemeral response"); }
+    }
+
+    private async Task EditOriginalAsync(string interactionToken, string content)
+    {
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interactionToken, new
         {
-            await _interactionEndpoints.EditOriginalAsync(_applicationId, interactionToken, new
-            {
-                content,
-                components = new[]
-                {
-                    new
-                    {
-                        type = 1, // ActionRow
-                        components = new[]
-                        {
-                            new
-                            {
-                                type = 8, // Channel select
-                                custom_id = customId,
-                                placeholder = "Select destination channel",
-                                channel_types = new[] { 0, 5, 10, 11, 12, 15 } // text, announcement, threads, forum
-                            }
-                        }
-                    }
-                }
-            });
-        }
-        else
-        {
-            await _interactionEndpoints.EditOriginalAsync(_applicationId, interactionToken, new
-            {
-                content,
-                components = Array.Empty<object>() // Clear any select menus
-            });
-        }
+            content,
+            components = Array.Empty<object>()
+        });
     }
 
     private async Task TryEditOriginalAsync(string interactionToken, string content)
@@ -560,7 +1094,6 @@ public sealed class MoveCommandHandler
 
     private static int CompareSnowflakes(string a, string b)
     {
-        // Snowflake IDs are chronologically ordered unsigned 64-bit integers
         if (ulong.TryParse(a, out var ua) && ulong.TryParse(b, out var ub))
             return ua.CompareTo(ub);
         return string.Compare(a, b, StringComparison.Ordinal);

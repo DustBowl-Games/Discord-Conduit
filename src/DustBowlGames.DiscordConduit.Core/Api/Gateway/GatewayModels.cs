@@ -100,6 +100,10 @@ public sealed class InteractionCreateEvent
     /// <summary>Guild member data for the invoking user, if in a guild.</summary>
     [JsonPropertyName("member")]
     public GuildMember? Member { get; init; }
+
+    /// <summary>User object for the invoking user, present in DM interactions.</summary>
+    [JsonPropertyName("user")]
+    public User? User { get; init; }
 }
 
 /// <summary>
@@ -148,6 +152,14 @@ public sealed class InteractionData
     /// <summary>Selected values from a select menu component interaction.</summary>
     [JsonPropertyName("values")]
     public List<string>? Values { get; init; }
+
+    /// <summary>Component type for component interactions.</summary>
+    [JsonPropertyName("component_type")]
+    public int? ComponentType { get; init; }
+
+    /// <summary>Components with submitted values from a modal submission.</summary>
+    [JsonPropertyName("components")]
+    public List<ActionRowData>? Components { get; init; }
 }
 
 /// <summary>
@@ -219,9 +231,9 @@ public sealed class ActionRowComponent
     [JsonPropertyName("type")]
     public int Type { get; set; } = 1;
 
-    /// <summary>Child components within this action row.</summary>
+    /// <summary>Child components within this action row (buttons, selects, text inputs).</summary>
     [JsonPropertyName("components")]
-    public List<SelectMenuComponent>? Components { get; set; }
+    public List<object>? Components { get; set; }
 }
 
 /// <summary>
@@ -229,7 +241,7 @@ public sealed class ActionRowComponent
 /// </summary>
 public sealed class SelectMenuComponent
 {
-    /// <summary>Component type (8 = channel select).</summary>
+    /// <summary>Component type (3 = string select, 8 = channel select).</summary>
     [JsonPropertyName("type")]
     public int Type { get; set; } = 8;
 
@@ -244,6 +256,134 @@ public sealed class SelectMenuComponent
     /// <summary>List of allowed channel types for channel select menus.</summary>
     [JsonPropertyName("channel_types")]
     public List<int>? ChannelTypes { get; set; }
+
+    /// <summary>Options for string select menus (type 3).</summary>
+    [JsonPropertyName("options")]
+    public List<SelectOption>? Options { get; set; }
+}
+
+/// <summary>An option in a string select menu.</summary>
+public sealed class SelectOption
+{
+    /// <summary>User-facing label.</summary>
+    [JsonPropertyName("label")]
+    public required string Label { get; init; }
+
+    /// <summary>Developer-defined value.</summary>
+    [JsonPropertyName("value")]
+    public required string Value { get; init; }
+
+    /// <summary>Additional description.</summary>
+    [JsonPropertyName("description")]
+    public string? Description { get; init; }
+
+    /// <summary>Emoji to display.</summary>
+    [JsonPropertyName("emoji")]
+    public ComponentEmoji? Emoji { get; init; }
+}
+
+/// <summary>Emoji reference for use in buttons and select options.</summary>
+public sealed class ComponentEmoji
+{
+    /// <summary>Unicode emoji character or custom emoji name.</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    /// <summary>Custom emoji snowflake ID.</summary>
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+}
+
+/// <summary>A button component (type 2).</summary>
+public sealed class ButtonComponent
+{
+    /// <summary>Component type; always 2 for buttons.</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; init; } = 2;
+
+    /// <summary>Button style (1=primary, 2=secondary, 3=success, 4=danger, 5=link).</summary>
+    [JsonPropertyName("style")]
+    public int Style { get; init; }
+
+    /// <summary>Text label on the button.</summary>
+    [JsonPropertyName("label")]
+    public string? Label { get; init; }
+
+    /// <summary>Developer-defined identifier.</summary>
+    [JsonPropertyName("custom_id")]
+    public string? CustomId { get; init; }
+
+    /// <summary>Emoji to display on the button.</summary>
+    [JsonPropertyName("emoji")]
+    public ComponentEmoji? Emoji { get; init; }
+}
+
+/// <summary>A text input component for modals (type 4).</summary>
+public sealed class TextInputComponent
+{
+    /// <summary>Component type; always 4 for text inputs.</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; init; } = 4;
+
+    /// <summary>Developer-defined identifier.</summary>
+    [JsonPropertyName("custom_id")]
+    public required string CustomId { get; init; }
+
+    /// <summary>Input style (1 = short/single-line, 2 = paragraph/multi-line).</summary>
+    [JsonPropertyName("style")]
+    public int Style { get; init; } = 1;
+
+    /// <summary>Label shown above the input.</summary>
+    [JsonPropertyName("label")]
+    public required string Label { get; init; }
+
+    /// <summary>Placeholder text.</summary>
+    [JsonPropertyName("placeholder")]
+    public string? Placeholder { get; init; }
+
+    /// <summary>Whether the input is required.</summary>
+    [JsonPropertyName("required")]
+    public bool? Required { get; init; }
+
+    /// <summary>Minimum input length.</summary>
+    [JsonPropertyName("min_length")]
+    public int? MinLength { get; init; }
+
+    /// <summary>Maximum input length.</summary>
+    [JsonPropertyName("max_length")]
+    public int? MaxLength { get; init; }
+
+    /// <summary>Pre-filled value.</summary>
+    [JsonPropertyName("value")]
+    public string? Value { get; init; }
+}
+
+/// <summary>Action row data from a modal submission.</summary>
+public sealed class ActionRowData
+{
+    /// <summary>Component type (always 1).</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; init; }
+
+    /// <summary>Child components with submitted values.</summary>
+    [JsonPropertyName("components")]
+    public List<TextInputData>? Components { get; init; }
+}
+
+/// <summary>Text input data from a modal submission.</summary>
+public sealed class TextInputData
+{
+    /// <summary>Component type (always 4).</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; init; }
+
+    /// <summary>The custom ID of the text input.</summary>
+    [JsonPropertyName("custom_id")]
+    public string? CustomId { get; init; }
+
+    /// <summary>The value entered by the user.</summary>
+    [JsonPropertyName("value")]
+    public string? Value { get; init; }
 }
 
 /// <summary>

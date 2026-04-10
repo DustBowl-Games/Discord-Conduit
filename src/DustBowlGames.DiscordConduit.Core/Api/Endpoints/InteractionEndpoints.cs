@@ -52,6 +52,23 @@ public sealed class InteractionEndpoints
     }
 
     /// <summary>
+    /// Responds to an interaction with a modal dialog (type 9).
+    /// </summary>
+    /// <param name="interactionId">The interaction's snowflake ID.</param>
+    /// <param name="interactionToken">The interaction token.</param>
+    /// <param name="customId">Unique identifier for the modal.</param>
+    /// <param name="title">Title of the modal dialog.</param>
+    /// <param name="components">Action row components containing text inputs.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task RespondWithModalAsync(string interactionId, string interactionToken,
+        string customId, string title, List<object> components, CancellationToken ct = default)
+    {
+        return _client.PostJsonNoResponseAsync(
+            $"/interactions/{interactionId}/{interactionToken}/callback",
+            new { type = 9, data = new { custom_id = customId, title, components } }, ct);
+    }
+
+    /// <summary>
     /// Sends a follow-up message after deferring an interaction response.
     /// </summary>
     /// <param name="applicationId">The application's snowflake ID.</param>

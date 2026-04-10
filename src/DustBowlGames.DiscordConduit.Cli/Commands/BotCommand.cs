@@ -63,9 +63,11 @@ internal static class BotCommand
             Console.WriteLine($"Connected. Application ID: {gateway.ApplicationId}");
 
             // Create move handler
+            var stateStore = new InteractionStateStore();
             var moveHandler = new MoveCommandHandler(
                 messageEndpoints, webhookEndpoints, channelEndpoints, interactionEndpoints,
                 messageMigrator, attachmentHandler,
+                stateStore,
                 gateway.ApplicationId, logger);
 
             // Register commands
@@ -79,7 +81,9 @@ internal static class BotCommand
                 if (interaction.Type == 2)
                     await moveHandler.HandleInteractionAsync(interaction);
                 else if (interaction.Type == 3)
-                    await moveHandler.HandleComponentInteractionAsync(interaction);
+                    await moveHandler.HandleComponentAsync(interaction);
+                else if (interaction.Type == 5)
+                    await moveHandler.HandleModalSubmitAsync(interaction);
             };
 
             Console.WriteLine("Bot is running. Press Ctrl+C to stop.");

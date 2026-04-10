@@ -37,6 +37,8 @@ public sealed class AppServices : IDisposable
     public DiscordGatewayClient? GatewayClient { get; private set; }
     public MoveCommandHandler? MoveHandler { get; private set; }
 
+    private readonly InteractionStateStore _stateStore = new();
+
     public bool IsConnected => RestClient is not null;
     public bool IsBotRunning => GatewayClient?.IsConnected == true;
 
@@ -90,6 +92,7 @@ public sealed class AppServices : IDisposable
             MoveHandler = new MoveCommandHandler(
                 Messages, Webhooks, Channels, Interactions,
                 messageMigrator, attachmentHandler,
+                _stateStore,
                 GatewayClient.ApplicationId, Log.Logger);
 
             // Register commands with Discord
@@ -106,14 +109,18 @@ public sealed class AppServices : IDisposable
     {
         if (MoveHandler is null) return;
 
-        // Type 2 = Application Command, Type 3 = Message Component
+        // Type 2 = Application Command, Type 3 = Message Component, Type 5 = Modal Submit
         if (interaction.Type == 2)
         {
             await MoveHandler.HandleInteractionAsync(interaction);
         }
         else if (interaction.Type == 3)
         {
-            await MoveHandler.HandleComponentInteractionAsync(interaction);
+            await MoveHandler.HandleComponentAsync(interaction);
+        }
+        else if (interaction.Type == 5)
+        {
+            await MoveHandler.HandleModalSubmitAsync(interaction);
         }
     }
 
