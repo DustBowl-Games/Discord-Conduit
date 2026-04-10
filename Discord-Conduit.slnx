@@ -1,5 +1,7 @@
 <Solution>
   <Folder Name="/src/">
+    <Project Path="src/DustBowlGames.DiscordConduit.App/DustBowlGames.DiscordConduit.App.csproj" />
+    <Project Path="src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordConduit.Cli.csproj" />
     <Project Path="src/DustBowlGames.DiscordConduit.Core.Tests/DustBowlGames.DiscordConduit.Core.Tests.csproj" />
     <Project Path="src/DustBowlGames.DiscordConduit.Core/DustBowlGames.DiscordConduit.Core.csproj" />
   </Folder>

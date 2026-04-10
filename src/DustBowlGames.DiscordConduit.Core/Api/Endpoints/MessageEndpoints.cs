@@ -1,0 +1,39 @@
+using DustBowlGames.DiscordConduit.Core.Api.Models;
+
+namespace DustBowlGames.DiscordConduit.Core.Api.Endpoints;
+
+/// <summary>
+/// Provides methods for interacting with Discord message endpoints.
+/// </summary>
+public sealed class MessageEndpoints
+{
+    private readonly DiscordRestClient _client;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="MessageEndpoints"/> class.
+    /// </summary>
+    /// <param name="client">The Discord REST client.</param>
+    public MessageEndpoints(DiscordRestClient client)
+    {
+        _client = client;
+    }
+
+    /// <summary>
+    /// Gets messages from a channel.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="limit">Maximum number of messages to return (1-100, default 100).</param>
+    /// <param name="before">Get messages before this message ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>A list of messages.</returns>
+    public Task<List<Message>> GetMessagesAsync(string channelId, int limit = 100, string? before = null, CancellationToken ct = default)
+    {
+        var path = $"/channels/{channelId}/messages?limit={limit}";
+        if (before is not null)
+        {
+            path += $"&before={before}";
+        }
+
+        return _client.GetAsync<List<Message>>(path, ct);
+    }
+}

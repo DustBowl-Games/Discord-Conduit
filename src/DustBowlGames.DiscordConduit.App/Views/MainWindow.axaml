@@ -1,0 +1,69 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+        x:Class="DustBowlGames.DiscordConduit.App.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="Discord Conduit"
+        Width="1100" Height="700"
+        MinWidth="800" MinHeight="500"
+        WindowStartupLocation="CenterScreen">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{DynamicResource SystemChromeLowColor}"
+                Padding="12,6">
+            <TextBlock Text="{Binding StatusMessage}"
+                       FontSize="12"
+                       Opacity="0.7" />
+        </Border>
+
+        <!-- Navigation -->
+        <Border DockPanel.Dock="Left"
+                Width="200"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                Padding="8">
+            <StackPanel Spacing="4">
+                <TextBlock Text="Discord Conduit"
+                           FontSize="18" FontWeight="Bold"
+                           Margin="8,12,8,16" />
+
+                <Button Content="Bot Profiles"
+                        Command="{Binding NavigateToCommand}"
+                        CommandParameter="Profiles"
+                        HorizontalAlignment="Stretch"
+                        Padding="12,8" />
+
+                <Button Content="Channel Browser"
+                        Command="{Binding NavigateToCommand}"
+                        CommandParameter="Browser"
+                        IsEnabled="{Binding IsConnected}"
+                        HorizontalAlignment="Stretch"
+                        Padding="12,8" />
+
+                <Button Content="Migration"
+                        Command="{Binding NavigateToCommand}"
+                        CommandParameter="Migration"
+                        IsEnabled="{Binding IsConnected}"
+                        HorizontalAlignment="Stretch"
+                        Padding="12,8" />
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content Area -->
+        <Border Padding="16">
+            <Panel>
+                <TextBlock Text="Select a bot profile to get started."
+                           VerticalAlignment="Center"
+                           HorizontalAlignment="Center"
+                           FontSize="16"
+                           Opacity="0.5" />
+            </Panel>
+        </Border>
+    </DockPanel>
+
+</Window>
