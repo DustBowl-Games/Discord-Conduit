@@ -1,3 +1,5 @@
+using DustBowlGames.DiscordConduit.Core.Validation;
+
 namespace DustBowlGames.DiscordConduit.Core.Migration;
 
 /// <summary>
@@ -9,10 +11,12 @@ namespace DustBowlGames.DiscordConduit.Core.Migration;
 /// <param name="OversizedAttachments">Attachments that exceed the bot upload size limit.</param>
 /// <param name="EstimatedDuration">An estimate of how long the migration will take.</param>
 /// <param name="Warnings">Any warnings the user should be aware of before starting.</param>
+/// <param name="PermissionCheck">The result of the bot permission validation, or null if not yet checked.</param>
 public sealed record MigrationPreview(
     int MessageCount,
     int AttachmentCount,
     long TotalAttachmentBytes,
     IReadOnlyList<OversizedAttachment> OversizedAttachments,
     TimeSpan EstimatedDuration,
-    IReadOnlyList<string> Warnings);
+    IReadOnlyList<string> Warnings,
+    PermissionCheckResult? PermissionCheck = null);

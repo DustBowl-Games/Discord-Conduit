@@ -1,0 +1,126 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+             x:Class="DustBowlGames.DiscordConduit.App.Views.MigrationPreviewView"
+             x:DataType="vm:MigrationPreviewViewModel">
+
+    <Design.DataContext>
+        <vm:MigrationPreviewViewModel />
+    </Design.DataContext>
+
+    <DockPanel Margin="16">
+        <!-- Header -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Migration Preview"
+                   FontSize="24" FontWeight="Bold"
+                   Margin="0,0,0,16" />
+
+        <!-- Source / Dest summary -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,0,16">
+            <Grid ColumnDefinitions="*,Auto,*">
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Source" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding SourceChannelName, FallbackValue='(not set)'}" FontSize="14" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="→" FontSize="20" VerticalAlignment="Center"
+                           Margin="16,0" Opacity="0.5" />
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Destination" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding DestinationChannelName, FallbackValue='(not set)'}" FontSize="14" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Options -->
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="16" Margin="0,0,0,16">
+            <CheckBox Content="Dry Run" IsChecked="{Binding IsDryRun}" />
+            <CheckBox Content="Include Reactions" IsChecked="{Binding IncludeReactions}" />
+            <Button Content="Run Preview" Command="{Binding RunPreviewCommand}" />
+        </StackPanel>
+
+        <!-- Error -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="{Binding ErrorMessage}"
+                   Foreground="OrangeRed"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Margin="0,0,0,8" />
+
+        <!-- Preview Results -->
+        <ScrollViewer IsVisible="{Binding HasPreview}">
+            <StackPanel Spacing="16">
+                <!-- Stats -->
+                <Grid ColumnDefinitions="*,*,*,*">
+                    <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding MessageCount}" FontSize="28" FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Messages" FontSize="12" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding AttachmentCount}" FontSize="28" FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Attachments" FontSize="12" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding TotalAttachmentSize}" FontSize="28" FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Total Size" FontSize="12" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                    <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                        <TextBlock Text="{Binding EstimatedDuration}" FontSize="28" FontWeight="Bold"
+                                   HorizontalAlignment="Center" />
+                        <TextBlock Text="Est. Duration" FontSize="12" Opacity="0.7"
+                                   HorizontalAlignment="Center" />
+                    </StackPanel>
+                </Grid>
+
+                <!-- Warnings -->
+                <Border Background="{DynamicResource SystemChromeMediumLowColor}"
+                        CornerRadius="8"
+                        Padding="12"
+                        IsVisible="{Binding Warnings.Count}">
+                    <StackPanel>
+                        <TextBlock Text="Warnings" FontWeight="SemiBold" Foreground="Orange"
+                                   Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding Warnings}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <TextBlock Text="{Binding}" Margin="0,2" />
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Oversized Attachments -->
+                <Border Background="{DynamicResource SystemChromeMediumLowColor}"
+                        CornerRadius="8"
+                        Padding="12"
+                        IsVisible="{Binding OversizedAttachments.Count}">
+                    <StackPanel>
+                        <TextBlock Text="Oversized Attachments (will be skipped)"
+                                   FontWeight="SemiBold" Foreground="OrangeRed"
+                                   Margin="0,0,0,8" />
+                        <ItemsControl ItemsSource="{Binding OversizedAttachments}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate x:DataType="vm:OversizedAttachmentViewModel">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,2">
+                                        <TextBlock Text="{Binding Filename}" />
+                                        <TextBlock Text="{Binding Size}" Opacity="0.7" />
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </DockPanel>
+
+</UserControl>

@@ -1,0 +1,123 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+             x:Class="DustBowlGames.DiscordConduit.App.Views.ChannelBrowserView"
+             x:DataType="vm:ChannelBrowserViewModel">
+
+    <Design.DataContext>
+        <vm:ChannelBrowserViewModel />
+    </Design.DataContext>
+
+    <DockPanel Margin="16">
+        <!-- Header -->
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,16">
+            <TextBlock Text="Channel Browser"
+                       FontSize="24" FontWeight="Bold"
+                       VerticalAlignment="Center" />
+            <Button Content="Refresh"
+                    Command="{Binding LoadGuildsCommand}"
+                    HorizontalAlignment="Right"
+                    Margin="8,0,0,0" />
+        </DockPanel>
+
+        <!-- Error -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="{Binding ErrorMessage}"
+                   Foreground="OrangeRed"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Margin="0,0,0,8" />
+
+        <!-- Selection Summary -->
+        <Border DockPanel.Dock="Bottom"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                CornerRadius="8"
+                Padding="12"
+                Margin="0,16,0,0">
+            <Grid ColumnDefinitions="*,Auto,*">
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Source" FontWeight="SemiBold" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding SelectedSource.FullDisplayName, FallbackValue='(none selected)'}"
+                               FontSize="14" />
+                </StackPanel>
+                <TextBlock Grid.Column="1" Text="→"
+                           FontSize="20" VerticalAlignment="Center"
+                           Margin="16,0" Opacity="0.5" />
+                <StackPanel Grid.Column="2">
+                    <TextBlock Text="Destination" FontWeight="SemiBold" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding SelectedDestination.FullDisplayName, FallbackValue='(none selected)'}"
+                               FontSize="14" />
+                </StackPanel>
+            </Grid>
+        </Border>
+
+        <!-- Side-by-side panels -->
+        <Grid ColumnDefinitions="*,16,*">
+            <!-- Source Panel -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource SystemChromeMediumLowColor}"
+                    CornerRadius="8"
+                    Padding="12">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top"
+                               Text="Select Source"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TreeView ItemsSource="{Binding Guilds}">
+                        <TreeView.DataTemplates>
+                            <TreeDataTemplate DataType="vm:GuildViewModel"
+                                              ItemsSource="{Binding Channels}">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                            </TreeDataTemplate>
+                            <TreeDataTemplate DataType="vm:ChannelNodeViewModel"
+                                              ItemsSource="{Binding Children}">
+                                <TextBlock Text="{Binding FullDisplayName}">
+                                    <TextBlock.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Set as Source"
+                                                      Command="{Binding $parent[TreeView].((vm:ChannelBrowserViewModel)DataContext).SetAsSourceCommand}"
+                                                      CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </TextBlock.ContextMenu>
+                                </TextBlock>
+                            </TreeDataTemplate>
+                        </TreeView.DataTemplates>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+
+            <!-- Destination Panel -->
+            <Border Grid.Column="2"
+                    Background="{DynamicResource SystemChromeMediumLowColor}"
+                    CornerRadius="8"
+                    Padding="12">
+                <DockPanel>
+                    <TextBlock DockPanel.Dock="Top"
+                               Text="Select Destination"
+                               FontWeight="SemiBold"
+                               Margin="0,0,0,8" />
+                    <TreeView ItemsSource="{Binding Guilds}">
+                        <TreeView.DataTemplates>
+                            <TreeDataTemplate DataType="vm:GuildViewModel"
+                                              ItemsSource="{Binding Channels}">
+                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" />
+                            </TreeDataTemplate>
+                            <TreeDataTemplate DataType="vm:ChannelNodeViewModel"
+                                              ItemsSource="{Binding Children}">
+                                <TextBlock Text="{Binding FullDisplayName}">
+                                    <TextBlock.ContextMenu>
+                                        <ContextMenu>
+                                            <MenuItem Header="Set as Destination"
+                                                      Command="{Binding $parent[TreeView].((vm:ChannelBrowserViewModel)DataContext).SetAsDestinationCommand}"
+                                                      CommandParameter="{Binding}" />
+                                        </ContextMenu>
+                                    </TextBlock.ContextMenu>
+                                </TextBlock>
+                            </TreeDataTemplate>
+                        </TreeView.DataTemplates>
+                    </TreeView>
+                </DockPanel>
+            </Border>
+        </Grid>
+    </DockPanel>
+
+</UserControl>

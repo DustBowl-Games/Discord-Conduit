@@ -1,0 +1,114 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+             x:Class="DustBowlGames.DiscordConduit.App.Views.MigrationProgressView"
+             x:DataType="vm:MigrationProgressViewModel">
+
+    <Design.DataContext>
+        <vm:MigrationProgressViewModel />
+    </Design.DataContext>
+
+    <DockPanel Margin="16">
+        <!-- Header -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Migration Progress"
+                   FontSize="24" FontWeight="Bold"
+                   Margin="0,0,0,16" />
+
+        <!-- Controls -->
+        <StackPanel DockPanel.Dock="Bottom"
+                    Orientation="Horizontal"
+                    Spacing="8"
+                    Margin="0,16,0,0">
+            <Button Content="Start Migration"
+                    Command="{Binding StartMigrationCommand}"
+                    IsVisible="{Binding !IsRunning}" />
+            <Button Command="{Binding TogglePauseCommand}"
+                    IsVisible="{Binding IsRunning}">
+                <Panel>
+                    <TextBlock Text="Pause" IsVisible="{Binding !IsPaused}" />
+                    <TextBlock Text="Resume" IsVisible="{Binding IsPaused}" />
+                </Panel>
+            </Button>
+            <Button Content="Cancel"
+                    Command="{Binding CancelCommand}"
+                    IsVisible="{Binding IsRunning}" />
+        </StackPanel>
+
+        <!-- Error -->
+        <TextBlock DockPanel.Dock="Bottom"
+                   Text="{Binding ErrorMessage}"
+                   Foreground="OrangeRed"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Margin="0,8,0,0" />
+
+        <!-- Progress Content -->
+        <StackPanel Spacing="12">
+            <!-- Phase -->
+            <TextBlock Text="{Binding Phase}"
+                       FontSize="16" FontWeight="SemiBold" />
+
+            <!-- Progress Bar -->
+            <ProgressBar Value="{Binding ProgressPercent}"
+                         Maximum="100"
+                         Height="24" />
+
+            <!-- Stats Grid -->
+            <Grid ColumnDefinitions="*,*,*,*" Margin="0,8,0,0">
+                <StackPanel Grid.Column="0" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding Completed}" FontSize="24" FontWeight="Bold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Migrated" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding Total}" FontSize="24" FontWeight="Bold"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Total" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="2" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding Failed}" FontSize="24" FontWeight="Bold"
+                               Foreground="OrangeRed"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Failed" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                    <TextBlock Text="{Binding Skipped}" FontSize="24" FontWeight="Bold"
+                               Foreground="Orange"
+                               HorizontalAlignment="Center" />
+                    <TextBlock Text="Skipped" FontSize="12" Opacity="0.7"
+                               HorizontalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Time -->
+            <Grid ColumnDefinitions="*,*" Margin="0,8,0,0">
+                <StackPanel Grid.Column="0">
+                    <TextBlock Text="Elapsed" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding ElapsedTime}" FontSize="16" />
+                </StackPanel>
+                <StackPanel Grid.Column="1">
+                    <TextBlock Text="ETA" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding EstimatedRemaining, FallbackValue='--:--:--'}"
+                               FontSize="16" />
+                </StackPanel>
+            </Grid>
+
+            <!-- Current Message -->
+            <Border Background="{DynamicResource SystemChromeMediumLowColor}"
+                    CornerRadius="4"
+                    Padding="12"
+                    IsVisible="{Binding CurrentMessagePreview, Converter={x:Static StringConverters.IsNotNullOrEmpty}}">
+                <StackPanel>
+                    <TextBlock Text="Current Message" FontSize="12" Opacity="0.7" />
+                    <TextBlock Text="{Binding CurrentMessagePreview}"
+                               TextTrimming="CharacterEllipsis"
+                               MaxLines="2" />
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </DockPanel>
+
+</UserControl>

@@ -1,0 +1,85 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+             x:Class="DustBowlGames.DiscordConduit.App.Views.ProfileManagerView"
+             x:DataType="vm:ProfileManagerViewModel">
+
+    <Design.DataContext>
+        <vm:ProfileManagerViewModel />
+    </Design.DataContext>
+
+    <DockPanel Margin="16">
+        <!-- Header -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="Bot Profiles"
+                   FontSize="24" FontWeight="Bold"
+                   Margin="0,0,0,16" />
+
+        <!-- Add Profile Section -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,0,16">
+            <StackPanel Spacing="8">
+                <TextBlock Text="Add New Profile" FontWeight="SemiBold" />
+                <TextBox Watermark="Profile Name"
+                         Text="{Binding NewProfileName}" />
+                <TextBox Watermark="Bot Token"
+                         Text="{Binding NewProfileToken}"
+                         PasswordChar="*" />
+                <Button Content="Add Profile"
+                        Command="{Binding AddProfileCommand}"
+                        HorizontalAlignment="Left" />
+            </StackPanel>
+        </Border>
+
+        <!-- Error Message -->
+        <TextBlock DockPanel.Dock="Top"
+                   Text="{Binding ErrorMessage}"
+                   Foreground="OrangeRed"
+                   IsVisible="{Binding ErrorMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Margin="0,0,0,8" />
+
+        <!-- Connection Status -->
+        <Border DockPanel.Dock="Top"
+                Background="{DynamicResource SystemChromeMediumLowColor}"
+                CornerRadius="8"
+                Padding="16"
+                Margin="0,0,0,16"
+                IsVisible="{Binding IsConnected}">
+            <TextBlock Text="{Binding ConnectedBotName}"
+                       Foreground="LightGreen" />
+        </Border>
+
+        <!-- Profile List -->
+        <Border Background="{DynamicResource SystemChromeMediumLowColor}"
+                CornerRadius="8"
+                Padding="16">
+            <DockPanel>
+                <StackPanel DockPanel.Dock="Bottom"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            Margin="0,8,0,0">
+                    <Button Content="Connect"
+                            Command="{Binding ConnectCommand}"
+                            IsEnabled="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                    <Button Content="Remove"
+                            Command="{Binding RemoveProfileCommand}"
+                            IsEnabled="{Binding SelectedProfile, Converter={x:Static ObjectConverters.IsNotNull}}" />
+                </StackPanel>
+
+                <ListBox ItemsSource="{Binding Profiles}"
+                         SelectedItem="{Binding SelectedProfile}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate x:DataType="vm:ProfileItemViewModel">
+                            <TextBlock Text="{Binding Name}"
+                                       Padding="8,4" />
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </DockPanel>
+        </Border>
+    </DockPanel>
+
+</UserControl>

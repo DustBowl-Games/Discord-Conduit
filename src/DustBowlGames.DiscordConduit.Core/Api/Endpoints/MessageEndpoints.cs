@@ -24,14 +24,20 @@ public sealed class MessageEndpoints
     /// <param name="channelId">The channel's snowflake ID.</param>
     /// <param name="limit">Maximum number of messages to return (1-100, default 100).</param>
     /// <param name="before">Get messages before this message ID.</param>
+    /// <param name="after">Get messages after this message ID (returns oldest first).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>A list of messages.</returns>
-    public Task<List<Message>> GetMessagesAsync(string channelId, int limit = 100, string? before = null, CancellationToken ct = default)
+    public Task<List<Message>> GetMessagesAsync(string channelId, int limit = 100, string? before = null, string? after = null, CancellationToken ct = default)
     {
         var path = $"/channels/{channelId}/messages?limit={limit}";
         if (before is not null)
         {
             path += $"&before={before}";
+        }
+
+        if (after is not null)
+        {
+            path += $"&after={after}";
         }
 
         return _client.GetAsync<List<Message>>(path, ct);
