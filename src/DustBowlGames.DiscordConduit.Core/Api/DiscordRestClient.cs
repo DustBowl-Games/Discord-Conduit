@@ -49,6 +49,18 @@ public sealed class DiscordRestClient : IDisposable
     /// <summary>Constructs a full URL from a relative API path.</summary>
     private static string BuildUrl(string path) => $"{BaseUrl}{path}";
 
+    /// <summary>Ensures success, logging the response body on failure for debugging.</summary>
+    private async Task EnsureSuccessAsync(HttpResponseMessage response, string method, string path)
+    {
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync();
+            _logger.Error("Discord API error: {Method} {Path} -> {Status}: {Body}",
+                method, path, (int)response.StatusCode, body);
+            await EnsureSuccessAsync(response, "API", "request"); // throws with status code
+        }
+    }
+
     /// <summary>
     /// Sends a GET request to the Discord API.
     /// </summary>
@@ -65,7 +77,7 @@ public sealed class DiscordRestClient : IDisposable
             () => new HttpRequestMessage(HttpMethod.Get, BuildUrl(path)),
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
         var result = await response.Content.ReadFromJsonAsync<T>(JsonOptions, ct);
         return result ?? throw new InvalidOperationException($"Null response from GET {path}");
     }
@@ -92,7 +104,7 @@ public sealed class DiscordRestClient : IDisposable
             },
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
         var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
         return result ?? throw new InvalidOperationException($"Null response from POST {path}");
     }
@@ -120,7 +132,7 @@ public sealed class DiscordRestClient : IDisposable
             },
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
         var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
         return result ?? throw new InvalidOperationException($"Null response from POST {path}");
     }
@@ -145,7 +157,7 @@ public sealed class DiscordRestClient : IDisposable
             },
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
     }
 
     /// <summary>
@@ -170,7 +182,7 @@ public sealed class DiscordRestClient : IDisposable
             },
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
         var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
         return result ?? throw new InvalidOperationException($"Null response from PUT {path}");
     }
@@ -197,7 +209,7 @@ public sealed class DiscordRestClient : IDisposable
             },
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
         var result = await response.Content.ReadFromJsonAsync<TResponse>(JsonOptions, ct);
         return result ?? throw new InvalidOperationException($"Null response from PATCH {path}");
     }
@@ -216,7 +228,7 @@ public sealed class DiscordRestClient : IDisposable
             () => new HttpRequestMessage(HttpMethod.Put, BuildUrl(path)),
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
     }
 
     /// <summary>
@@ -233,7 +245,7 @@ public sealed class DiscordRestClient : IDisposable
             () => new HttpRequestMessage(HttpMethod.Delete, BuildUrl(path)),
             ct);
 
-        response.EnsureSuccessStatusCode();
+        await EnsureSuccessAsync(response, "API", "request");
     }
 
     /// <summary>
