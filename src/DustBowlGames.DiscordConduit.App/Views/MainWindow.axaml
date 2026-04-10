@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:DustBowlGames.DiscordConduit.App.ViewModels"
+        xmlns:views="using:DustBowlGames.DiscordConduit.App.Views"
         x:Class="DustBowlGames.DiscordConduit.App.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Discord Conduit"
@@ -22,7 +23,7 @@
                        Opacity="0.7" />
         </Border>
 
-        <!-- Navigation -->
+        <!-- Navigation Sidebar -->
         <Border DockPanel.Dock="Left"
                 Width="200"
                 Background="{DynamicResource SystemChromeMediumLowColor}"
@@ -45,6 +46,13 @@
                         HorizontalAlignment="Stretch"
                         Padding="12,8" />
 
+                <Button Content="Preview"
+                        Command="{Binding NavigateToCommand}"
+                        CommandParameter="Preview"
+                        IsEnabled="{Binding IsConnected}"
+                        HorizontalAlignment="Stretch"
+                        Padding="12,8" />
+
                 <Button Content="Migration"
                         Command="{Binding NavigateToCommand}"
                         CommandParameter="Migration"
@@ -55,15 +63,22 @@
         </Border>
 
         <!-- Main Content Area -->
-        <Border Padding="16">
-            <Panel>
-                <TextBlock Text="Select a bot profile to get started."
-                           VerticalAlignment="Center"
-                           HorizontalAlignment="Center"
-                           FontSize="16"
-                           Opacity="0.5" />
-            </Panel>
-        </Border>
+        <ContentControl Content="{Binding ActiveContent}">
+            <ContentControl.DataTemplates>
+                <DataTemplate DataType="vm:ProfileManagerViewModel">
+                    <views:ProfileManagerView />
+                </DataTemplate>
+                <DataTemplate DataType="vm:ChannelBrowserViewModel">
+                    <views:ChannelBrowserView />
+                </DataTemplate>
+                <DataTemplate DataType="vm:MigrationPreviewViewModel">
+                    <views:MigrationPreviewView />
+                </DataTemplate>
+                <DataTemplate DataType="vm:MigrationProgressViewModel">
+                    <views:MigrationProgressView />
+                </DataTemplate>
+            </ContentControl.DataTemplates>
+        </ContentControl>
     </DockPanel>
 
 </Window>
