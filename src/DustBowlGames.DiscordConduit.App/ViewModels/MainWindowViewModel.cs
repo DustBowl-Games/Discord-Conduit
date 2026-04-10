@@ -1,10 +1,13 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DustBowlGames.DiscordConduit.App.Services;
 
 namespace DustBowlGames.DiscordConduit.App.ViewModels;
 
 public partial class MainWindowViewModel : ObservableObject
 {
+    private readonly AppServices _services;
+
     [ObservableProperty]
     private string _currentView = "Profiles";
 
@@ -14,24 +17,48 @@ public partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     private string? _statusMessage = "Select a bot profile to get started.";
 
-    [ObservableProperty]
-    private ProfileManagerViewModel _profileManager = new();
-
-    [ObservableProperty]
-    private ChannelBrowserViewModel _channelBrowser = new();
-
-    [ObservableProperty]
-    private MigrationPreviewViewModel _migrationPreview = new();
-
-    [ObservableProperty]
-    private MigrationProgressViewModel _migrationProgress = new();
+    public ProfileManagerViewModel ProfileManager { get; }
+    public ChannelBrowserViewModel ChannelBrowser { get; }
+    public MigrationPreviewViewModel MigrationPreview { get; }
+    public MigrationProgressViewModel MigrationProgress { get; }
 
     [ObservableProperty]
     private ObservableObject? _activeContent;
 
-    public MainWindowViewModel()
+    public MainWindowViewModel() : this(new AppServices()) { }
+
+    public MainWindowViewModel(AppServices services)
     {
+        _services = services;
+
+        ProfileManager = new ProfileManagerViewModel(services, OnConnectionChanged);
+        ChannelBrowser = new ChannelBrowserViewModel(services);
+        MigrationPreview = new MigrationPreviewViewModel(
+            services,
+            () => ChannelBrowser.SelectedSource,
+            () => ChannelBrowser.SelectedDestination);
+        MigrationProgress = new MigrationProgressViewModel(
+            services,
+            () => MigrationPreview.CurrentOptions);
+
         ActiveContent = ProfileManager;
+
+        // Load profiles on startup
+        _ = ProfileManager.LoadProfilesCommand.ExecuteAsync(null);
+    }
+
+    private void OnConnectionChanged(bool connected)
+    {
+        IsConnected = connected;
+        StatusMessage = connected
+            ? "Connected. Browse channels to set up a migration."
+            : "Select a bot profile to get started.";
+
+        if (connected)
+        {
+            // Auto-load guilds when connected
+            _ = ChannelBrowser.LoadGuildsCommand.ExecuteAsync(null);
+        }
     }
 
     [RelayCommand]
@@ -52,7 +79,7 @@ public partial class MainWindowViewModel : ObservableObject
             "Profiles" => IsConnected ? "Connected. Manage bot profiles." : "Select a bot profile to get started.",
             "Browser" => "Select a source and destination channel.",
             "Preview" => "Review migration details before starting.",
-            "Migration" => "Migration in progress.",
+            "Migration" => "Monitor migration progress.",
             _ => null
         };
     }

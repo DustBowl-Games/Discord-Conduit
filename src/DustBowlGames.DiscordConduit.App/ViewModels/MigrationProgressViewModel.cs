@@ -1,11 +1,15 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DustBowlGames.DiscordConduit.App.Services;
 using DustBowlGames.DiscordConduit.Core.Migration;
+using Serilog;
 
 namespace DustBowlGames.DiscordConduit.App.ViewModels;
 
 public partial class MigrationProgressViewModel : ObservableObject
 {
+    private readonly AppServices _services;
+    private readonly Func<MigrationOptions?> _getOptions;
     private CancellationTokenSource? _cts;
 
     [ObservableProperty]
@@ -50,7 +54,19 @@ public partial class MigrationProgressViewModel : ObservableObject
     [ObservableProperty]
     private MigrationResult? _result;
 
-    public void UpdateProgress(MigrationProgress progress)
+    // Summary properties for post-migration display
+    [ObservableProperty]
+    private string _summaryText = string.Empty;
+
+    public MigrationProgressViewModel() : this(null!, () => null) { }
+
+    public MigrationProgressViewModel(AppServices services, Func<MigrationOptions?> getOptions)
+    {
+        _services = services;
+        _getOptions = getOptions;
+    }
+
+    private void UpdateProgress(MigrationProgress progress)
     {
         Completed = progress.Completed;
         Total = progress.Total;
@@ -67,42 +83,60 @@ public partial class MigrationProgressViewModel : ObservableObject
     private void Cancel()
     {
         _cts?.Cancel();
-        IsRunning = false;
     }
 
     [RelayCommand]
     private void TogglePause()
     {
         IsPaused = !IsPaused;
-        // TODO: Wire up PauseTokenSource
     }
 
     [RelayCommand]
     private async Task StartMigrationAsync()
     {
+        var options = _getOptions();
+        if (options is null)
+        {
+            ErrorMessage = "No migration options set. Run a preview first.";
+            return;
+        }
+
+        if (_services?.Migration is null)
+        {
+            ErrorMessage = "Not connected to Discord.";
+            return;
+        }
+
         _cts = new CancellationTokenSource();
         IsRunning = true;
         IsComplete = false;
         ErrorMessage = null;
+        Phase = "Starting...";
 
         var progress = new Progress<MigrationProgress>(UpdateProgress);
 
         try
         {
-            // TODO: Wire up MigrationEngine.RunAsync
+            Result = await _services.Migration.RunAsync(options, progress, _cts.Token);
             IsComplete = true;
+            Phase = "Complete";
+            SummaryText = $"Migrated {Result.TotalMigrated} messages, {Result.TotalFailed} failed, {Result.TotalSkipped} skipped in {Result.Duration:hh\\:mm\\:ss}";
+            Log.Logger.Information("Migration completed: {Summary}", SummaryText);
         }
         catch (OperationCanceledException)
         {
             Phase = "Cancelled";
+            SummaryText = "Migration was cancelled.";
         }
         catch (Exception ex)
         {
             ErrorMessage = $"Migration failed: {ex.Message}";
+            Log.Logger.Error(ex, "Migration failed");
         }
         finally
         {
             IsRunning = false;
+            _cts = null;
         }
     }
 }

@@ -1,11 +1,17 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DustBowlGames.DiscordConduit.App.Services;
+using DustBowlGames.DiscordConduit.Core.Api.Models;
+using Serilog;
 
 namespace DustBowlGames.DiscordConduit.App.ViewModels;
 
 public partial class ProfileManagerViewModel : ObservableObject
 {
+    private readonly AppServices _services;
+    private readonly Action<bool> _onConnectionChanged;
+
     [ObservableProperty]
     private ObservableCollection<ProfileItemViewModel> _profiles = [];
 
@@ -30,6 +36,31 @@ public partial class ProfileManagerViewModel : ObservableObject
     [ObservableProperty]
     private string? _connectedBotName;
 
+    public ProfileManagerViewModel() : this(null!, _ => { }) { }
+
+    public ProfileManagerViewModel(AppServices services, Action<bool> onConnectionChanged)
+    {
+        _services = services;
+        _onConnectionChanged = onConnectionChanged;
+    }
+
+    [RelayCommand]
+    private async Task LoadProfilesAsync()
+    {
+        if (_services is null) return;
+
+        try
+        {
+            var profiles = await _services.ProfileManager.GetProfilesAsync();
+            Profiles = new ObservableCollection<ProfileItemViewModel>(
+                profiles.Select(p => new ProfileItemViewModel { Name = p.Name }));
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to load profiles: {ex.Message}";
+        }
+    }
+
     [RelayCommand]
     private async Task AddProfileAsync()
     {
@@ -40,10 +71,18 @@ public partial class ProfileManagerViewModel : ObservableObject
         }
 
         ErrorMessage = null;
-        // TODO: Wire up ProfileManager.AddProfileAsync
-        Profiles.Add(new ProfileItemViewModel { Name = NewProfileName });
-        NewProfileName = string.Empty;
-        NewProfileToken = string.Empty;
+
+        try
+        {
+            await _services.ProfileManager.AddProfileAsync(NewProfileName.Trim(), NewProfileToken.Trim());
+            Profiles.Add(new ProfileItemViewModel { Name = NewProfileName.Trim() });
+            NewProfileName = string.Empty;
+            NewProfileToken = string.Empty;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to add profile: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -51,9 +90,25 @@ public partial class ProfileManagerViewModel : ObservableObject
     {
         if (SelectedProfile is null) return;
 
-        // TODO: Wire up ProfileManager.RemoveProfileAsync
-        Profiles.Remove(SelectedProfile);
-        SelectedProfile = null;
+        try
+        {
+            await _services.ProfileManager.RemoveProfileAsync(SelectedProfile.Name);
+            Profiles.Remove(SelectedProfile);
+
+            if (IsConnected && ConnectedBotName?.Contains(SelectedProfile.Name) == true)
+            {
+                _services.Disconnect();
+                IsConnected = false;
+                ConnectedBotName = null;
+                _onConnectionChanged(false);
+            }
+
+            SelectedProfile = null;
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Failed to remove profile: {ex.Message}";
+        }
     }
 
     [RelayCommand]
@@ -66,14 +121,32 @@ public partial class ProfileManagerViewModel : ObservableObject
 
         try
         {
-            // TODO: Wire up — get token, create DiscordRestClient, call GET /users/@me
+            var token = await _services.ProfileManager.GetTokenAsync(SelectedProfile.Name);
+            if (string.IsNullOrEmpty(token))
+            {
+                ErrorMessage = "Token not found for this profile. Try re-adding it.";
+                return;
+            }
+
+            _services.Connect(token);
+
+            // Verify connection by calling GET /users/@me
+            var botUser = await _services.RestClient!.GetAsync<User>("/users/@me");
             IsConnected = true;
-            ConnectedBotName = $"Connected as bot (placeholder)";
+            ConnectedBotName = $"Connected as {botUser.DisplayName}";
+            _onConnectionChanged(true);
+
+            Log.Logger.Information("Connected to Discord as {BotName} ({BotId})",
+                botUser.DisplayName, botUser.Id);
         }
         catch (Exception ex)
         {
-            ErrorMessage = $"Connection failed: {ex.Message}";
+            _services.Disconnect();
             IsConnected = false;
+            ConnectedBotName = null;
+            _onConnectionChanged(false);
+            ErrorMessage = $"Connection failed: {ex.Message}";
+            Log.Logger.Error(ex, "Failed to connect to Discord");
         }
         finally
         {

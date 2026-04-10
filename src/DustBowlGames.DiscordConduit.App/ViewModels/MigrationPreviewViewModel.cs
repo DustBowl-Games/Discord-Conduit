@@ -1,12 +1,18 @@
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using DustBowlGames.DiscordConduit.App.Services;
 using DustBowlGames.DiscordConduit.Core.Migration;
+using Serilog;
 
 namespace DustBowlGames.DiscordConduit.App.ViewModels;
 
 public partial class MigrationPreviewViewModel : ObservableObject
 {
+    private readonly AppServices _services;
+    private readonly Func<ChannelNodeViewModel?> _getSource;
+    private readonly Func<ChannelNodeViewModel?> _getDestination;
+
     [ObservableProperty]
     private int _messageCount;
 
@@ -46,7 +52,63 @@ public partial class MigrationPreviewViewModel : ObservableObject
     [ObservableProperty]
     private string? _destinationChannelName;
 
-    public void LoadPreview(MigrationPreview preview)
+    public MigrationPreviewViewModel() : this(null!, () => null, () => null) { }
+
+    public MigrationPreviewViewModel(
+        AppServices services,
+        Func<ChannelNodeViewModel?> getSource,
+        Func<ChannelNodeViewModel?> getDestination)
+    {
+        _services = services;
+        _getSource = getSource;
+        _getDestination = getDestination;
+    }
+
+    public MigrationOptions? CurrentOptions { get; private set; }
+
+    [RelayCommand]
+    private async Task RunPreviewAsync()
+    {
+        var source = _getSource();
+        var dest = _getDestination();
+
+        if (source is null || dest is null)
+        {
+            ErrorMessage = "Select a source and destination channel first.";
+            return;
+        }
+
+        if (_services?.Migration is null)
+        {
+            ErrorMessage = "Not connected to Discord.";
+            return;
+        }
+
+        IsLoading = true;
+        ErrorMessage = null;
+        SourceChannelName = source.FullDisplayName;
+        DestinationChannelName = dest.FullDisplayName;
+
+        try
+        {
+            CurrentOptions = new MigrationOptions(
+                source.Id, dest.Id, source.GuildId, IsDryRun, IncludeReactions);
+
+            var preview = await _services.Migration.PreviewAsync(CurrentOptions, CancellationToken.None);
+            LoadPreview(preview);
+        }
+        catch (Exception ex)
+        {
+            ErrorMessage = $"Preview failed: {ex.Message}";
+            Log.Logger.Error(ex, "Migration preview failed");
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    private void LoadPreview(MigrationPreview preview)
     {
         MessageCount = preview.MessageCount;
         AttachmentCount = preview.AttachmentCount;
@@ -61,26 +123,6 @@ public partial class MigrationPreviewViewModel : ObservableObject
                 SourceMessageId = a.SourceMessageId
             }));
         HasPreview = true;
-    }
-
-    [RelayCommand]
-    private async Task RunPreviewAsync()
-    {
-        IsLoading = true;
-        ErrorMessage = null;
-
-        try
-        {
-            // TODO: Wire up MigrationEngine.PreviewAsync
-        }
-        catch (Exception ex)
-        {
-            ErrorMessage = $"Preview failed: {ex.Message}";
-        }
-        finally
-        {
-            IsLoading = false;
-        }
     }
 
     private static string FormatBytes(long bytes)

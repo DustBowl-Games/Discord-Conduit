@@ -1,54 +1,219 @@
 using System.CommandLine;
+using DustBowlGames.DiscordConduit.Core.Api;
+using DustBowlGames.DiscordConduit.Core.Api.Endpoints;
+using DustBowlGames.DiscordConduit.Core.Credentials;
+using DustBowlGames.DiscordConduit.Core.Migration;
+using DustBowlGames.DiscordConduit.Core.Profiles;
+using Serilog;
 
 namespace DustBowlGames.DiscordConduit.Cli.Commands;
 
 internal static class MigrateCommand
 {
-    public static Command Create()
+    public static Command Create(string appDataPath)
     {
         var command = new Command("migrate") { Description = "Run a message migration" };
 
         var profileOption = new Option<string>("--profile") { Description = "Bot profile name", Required = true };
         var sourceOption = new Option<string>("--source") { Description = "Source channel ID", Required = true };
         var destOption = new Option<string>("--dest") { Description = "Destination channel ID", Required = true };
+        var guildOption = new Option<string>("--guild") { Description = "Guild (server) ID", Required = true };
         var dryRunOption = new Option<bool>("--dry-run") { Description = "Validate without posting" };
         var noReactionsOption = new Option<bool>("--no-reactions") { Description = "Skip reaction migration" };
 
         command.Options.Add(profileOption);
         command.Options.Add(sourceOption);
         command.Options.Add(destOption);
+        command.Options.Add(guildOption);
         command.Options.Add(dryRunOption);
         command.Options.Add(noReactionsOption);
 
-        command.SetAction(result =>
+        command.SetAction(async (result, ct) =>
         {
-            var profile = result.GetValue(profileOption);
-            var source = result.GetValue(sourceOption);
-            var dest = result.GetValue(destOption);
+            var profileName = result.GetValue(profileOption)!;
+            var source = result.GetValue(sourceOption)!;
+            var dest = result.GetValue(destOption)!;
+            var guild = result.GetValue(guildOption)!;
             var dryRun = result.GetValue(dryRunOption);
             var noReactions = result.GetValue(noReactionsOption);
 
-            Console.WriteLine($"Migrating from {source} to {dest} using profile '{profile}'...");
-            if (dryRun) Console.WriteLine("  (dry run mode)");
-            if (noReactions) Console.WriteLine("  (skipping reactions)");
-            // TODO: Wire up MigrationEngine
+            var token = await ResolveTokenAsync(profileName, appDataPath);
+            if (token is null) return;
+
+            var logger = Log.Logger;
+
+            using var discordClient = new DiscordRestClient(token, logger);
+            var messageEndpoints = new MessageEndpoints(discordClient);
+            var webhookEndpoints = new WebhookEndpoints(discordClient);
+            var reactionEndpoints = new ReactionEndpoints(discordClient);
+            var channelEndpoints = new ChannelEndpoints(discordClient);
+            var messageMigrator = new MessageMigrator(logger);
+            using var cdnHttpClient = new HttpClient();
+            var attachmentHandler = new AttachmentHandler(cdnHttpClient, logger);
+
+            var engine = new MigrationEngine(
+                messageEndpoints,
+                webhookEndpoints,
+                reactionEndpoints,
+                channelEndpoints,
+                messageMigrator,
+                attachmentHandler,
+                appDataPath,
+                logger);
+
+            var options = new MigrationOptions(
+                SourceChannelId: source,
+                DestinationChannelId: dest,
+                GuildId: guild,
+                DryRun: dryRun,
+                IncludeReactions: !noReactions);
+
+            // Preview
+            Console.WriteLine("Analyzing source channel...");
+            var preview = await engine.PreviewAsync(options, ct);
+
+            Console.WriteLine();
+            Console.WriteLine($"  Messages:    {preview.MessageCount}");
+            Console.WriteLine($"  Attachments: {preview.AttachmentCount} ({preview.TotalAttachmentBytes / 1024.0 / 1024.0:F1} MB)");
+            Console.WriteLine($"  Oversized:   {preview.OversizedAttachments.Count}");
+            Console.WriteLine($"  Est. time:   {preview.EstimatedDuration:hh\\:mm\\:ss}");
+
+            if (preview.Warnings.Count > 0)
+            {
+                Console.WriteLine();
+                foreach (var warning in preview.Warnings)
+                {
+                    Console.WriteLine($"  WARNING: {warning}");
+                }
+            }
+
+            Console.WriteLine();
+
+            if (dryRun) Console.WriteLine("Running in dry-run mode...");
+            else Console.WriteLine("Starting migration...");
+
+            // Run with progress
+            var progress = new Progress<MigrationProgress>(p =>
+            {
+                var pct = p.Total > 0 ? (int)(100.0 * p.Completed / p.Total) : 0;
+                var eta = p.EstimatedRemaining is not null
+                    ? $" ETA {p.EstimatedRemaining.Value:hh\\:mm\\:ss}"
+                    : "";
+                Console.Write($"\r  [{pct,3}%] {p.Completed}/{p.Total} migrated, {p.Failed} failed, {p.Skipped} skipped | {p.Phase}{eta}   ");
+            });
+
+            var migrationResult = await engine.RunAsync(options, progress, ct);
+
+            Console.WriteLine();
+            Console.WriteLine();
             Console.WriteLine("Migration complete.");
+            Console.WriteLine($"  Migrated: {migrationResult.TotalMigrated}");
+            Console.WriteLine($"  Failed:   {migrationResult.TotalFailed}");
+            Console.WriteLine($"  Skipped:  {migrationResult.TotalSkipped}");
+            Console.WriteLine($"  Duration: {migrationResult.Duration:hh\\:mm\\:ss}");
+
+            if (migrationResult.FailedMessages.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Failed messages:");
+                foreach (var failed in migrationResult.FailedMessages)
+                {
+                    Console.WriteLine($"  - {failed.SourceMessageId}: {failed.Reason}");
+                }
+            }
         });
 
         // Resume subcommand
         var resumeCommand = new Command("resume") { Description = "Resume an interrupted migration" };
         var stateFileArg = new Argument<string>("state-file");
+        var resumeProfileOption = new Option<string>("--profile") { Description = "Bot profile name", Required = true };
         resumeCommand.Arguments.Add(stateFileArg);
-        resumeCommand.SetAction(result =>
+        resumeCommand.Options.Add(resumeProfileOption);
+        resumeCommand.SetAction(async (result, ct) =>
         {
-            var stateFile = result.GetValue(stateFileArg);
-            Console.WriteLine($"Resuming migration from {stateFile}...");
-            // TODO: Wire up MigrationEngine.ResumeAsync
+            var stateFile = result.GetValue(stateFileArg)!;
+            var profileName = result.GetValue(resumeProfileOption)!;
+
+            var state = await MigrationState.LoadAsync(stateFile);
+            if (state is null)
+            {
+                Console.Error.WriteLine($"Could not load migration state from '{stateFile}'.");
+                return;
+            }
+
+            var token = await ResolveTokenAsync(profileName, appDataPath);
+            if (token is null) return;
+
+            var logger = Log.Logger;
+
+            using var discordClient = new DiscordRestClient(token, logger);
+            var messageEndpoints = new MessageEndpoints(discordClient);
+            var webhookEndpoints = new WebhookEndpoints(discordClient);
+            var reactionEndpoints = new ReactionEndpoints(discordClient);
+            var channelEndpoints = new ChannelEndpoints(discordClient);
+            var messageMigrator = new MessageMigrator(logger);
+            using var cdnHttpClient = new HttpClient();
+            var attachmentHandler = new AttachmentHandler(cdnHttpClient, logger);
+
+            var engine = new MigrationEngine(
+                messageEndpoints,
+                webhookEndpoints,
+                reactionEndpoints,
+                channelEndpoints,
+                messageMigrator,
+                attachmentHandler,
+                appDataPath,
+                logger);
+
+            Console.WriteLine($"Resuming migration {state.MigrationId}...");
+            Console.WriteLine($"  Already migrated: {state.MigratedCount}");
+
+            var progress = new Progress<MigrationProgress>(p =>
+            {
+                var pct = p.Total > 0 ? (int)(100.0 * p.Completed / p.Total) : 0;
+                var eta = p.EstimatedRemaining is not null
+                    ? $" ETA {p.EstimatedRemaining.Value:hh\\:mm\\:ss}"
+                    : "";
+                Console.Write($"\r  [{pct,3}%] {p.Completed}/{p.Total} migrated, {p.Failed} failed, {p.Skipped} skipped | {p.Phase}{eta}   ");
+            });
+
+            var migrationResult = await engine.ResumeAsync(state, progress, ct);
+
+            Console.WriteLine();
+            Console.WriteLine();
             Console.WriteLine("Migration complete.");
+            Console.WriteLine($"  Migrated: {migrationResult.TotalMigrated}");
+            Console.WriteLine($"  Failed:   {migrationResult.TotalFailed}");
+            Console.WriteLine($"  Skipped:  {migrationResult.TotalSkipped}");
+            Console.WriteLine($"  Duration: {migrationResult.Duration:hh\\:mm\\:ss}");
+
+            if (migrationResult.FailedMessages.Count > 0)
+            {
+                Console.WriteLine();
+                Console.WriteLine("Failed messages:");
+                foreach (var failed in migrationResult.FailedMessages)
+                {
+                    Console.WriteLine($"  - {failed.SourceMessageId}: {failed.Reason}");
+                }
+            }
         });
 
         command.Subcommands.Add(resumeCommand);
 
         return command;
+    }
+
+    private static async Task<string?> ResolveTokenAsync(string profileName, string appDataPath)
+    {
+        var credentialStore = CredentialStoreFactory.Create();
+        var profileManager = new ProfileManager(credentialStore, appDataPath);
+        var token = await profileManager.GetTokenAsync(profileName);
+
+        if (token is null)
+        {
+            Console.Error.WriteLine($"Profile '{profileName}' not found or has no token.");
+        }
+
+        return token;
     }
 }
