@@ -81,10 +81,13 @@ public sealed class WebhookEndpoints
     /// <param name="webhookToken">The webhook's token.</param>
     /// <param name="payload">The message payload.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="threadId">Optional thread ID to post into (webhook must be in the thread's parent channel).</param>
     /// <returns>The created message.</returns>
-    public Task<Message> ExecuteWebhookAsync(string webhookId, string webhookToken, WebhookExecutePayload payload, CancellationToken ct = default)
+    public Task<Message> ExecuteWebhookAsync(string webhookId, string webhookToken, WebhookExecutePayload payload, CancellationToken ct = default, string? threadId = null)
     {
-        return _client.PostJsonAsync<Message>($"/webhooks/{webhookId}/{webhookToken}?wait=true", payload, ct);
+        var url = $"/webhooks/{webhookId}/{webhookToken}?wait=true";
+        if (threadId is not null) url += $"&thread_id={threadId}";
+        return _client.PostJsonAsync<Message>(url, payload, ct);
     }
 
     /// <summary>
@@ -94,9 +97,12 @@ public sealed class WebhookEndpoints
     /// <param name="webhookToken">The webhook's token.</param>
     /// <param name="contentFactory">Factory that creates fresh multipart content for each attempt (supports 429 retries).</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="threadId">Optional thread ID to post into (webhook must be in the thread's parent channel).</param>
     /// <returns>The created message.</returns>
-    public Task<Message> ExecuteWebhookWithFilesAsync(string webhookId, string webhookToken, Func<MultipartFormDataContent> contentFactory, CancellationToken ct = default)
+    public Task<Message> ExecuteWebhookWithFilesAsync(string webhookId, string webhookToken, Func<MultipartFormDataContent> contentFactory, CancellationToken ct = default, string? threadId = null)
     {
-        return _client.PostMultipartAsync<Message>($"/webhooks/{webhookId}/{webhookToken}?wait=true", contentFactory, ct);
+        var url = $"/webhooks/{webhookId}/{webhookToken}?wait=true";
+        if (threadId is not null) url += $"&thread_id={threadId}";
+        return _client.PostMultipartAsync<Message>(url, contentFactory, ct);
     }
 }

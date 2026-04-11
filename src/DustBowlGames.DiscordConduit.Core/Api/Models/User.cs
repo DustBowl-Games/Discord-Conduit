@@ -35,11 +35,36 @@ public sealed class User
     [JsonIgnore]
     public string DisplayName => GlobalName ?? Username;
 
-    /// <summary>Gets the avatar CDN URL, or null if no avatar is set.</summary>
-    public string? GetAvatarUrl(int size = 128)
+    /// <summary>Gets the avatar CDN URL for display purposes.</summary>
+    public string GetAvatarUrl()
     {
-        if (Avatar is null) return null;
-        var ext = Avatar.StartsWith("a_") ? "gif" : "png";
-        return $"https://cdn.discordapp.com/avatars/{Id}/{Avatar}.{ext}?size={size}";
+        if (Avatar is not null)
+        {
+            var ext = Avatar.StartsWith("a_") ? "gif" : "png";
+            return $"https://cdn.discordapp.com/avatars/{Id}/{Avatar}.{ext}";
+        }
+
+        // Default avatar: based on (user_id >> 22) % 6 for new username system,
+        // or discriminator % 5 for legacy users
+        var index = Discriminator is not null and not "0"
+            ? int.Parse(Discriminator) % 5
+            : (long.TryParse(Id, out var uid) ? (int)((uid >> 22) % 6) : 0);
+        return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
+    }
+
+    /// <summary>Gets the avatar URL suitable for webhook avatar_url parameter.
+    /// Always uses .png (Discord silently rejects .gif for webhook avatars).</summary>
+    public string GetWebhookAvatarUrl()
+    {
+        if (Avatar is not null)
+        {
+            // Always use .png — Discord silently rejects .gif for webhook avatar_url
+            return $"https://cdn.discordapp.com/avatars/{Id}/{Avatar}.png";
+        }
+
+        var index = Discriminator is not null and not "0"
+            ? int.Parse(Discriminator) % 5
+            : (long.TryParse(Id, out var uid) ? (int)((uid >> 22) % 6) : 0);
+        return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
     }
 }

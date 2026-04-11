@@ -98,23 +98,15 @@ public sealed class PermissionValidator
             return;
         }
 
-        // Probe MANAGE_WEBHOOKS by creating and immediately deleting a test webhook
+        // Probe MANAGE_WEBHOOKS by creating and immediately deleting a test webhook.
+        // Also probe SEND_MESSAGES by executing the webhook with a test message.
+        Webhook? testWebhook = null;
         try
         {
-            var webhook = await _client.PostJsonAsync<Webhook>(
+            testWebhook = await _client.PostJsonAsync<Webhook>(
                 $"/channels/{channelId}/webhooks",
                 new { name = "conduit-permission-check" },
                 ct);
-
-            // Clean up the test webhook immediately
-            try
-            {
-                await _client.DeleteAsync($"/webhooks/{webhook.Id}", ct);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Failed to delete test webhook {WebhookId} — manual cleanup may be needed", webhook.Id);
-            }
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
         {
@@ -123,6 +115,47 @@ public sealed class PermissionValidator
                 "destination",
                 "MANAGE_WEBHOOKS",
                 "The bot cannot create webhooks in the destination channel. Grant the MANAGE_WEBHOOKS permission."));
+        }
+
+        // If webhook creation succeeded, test SEND_MESSAGES by executing it
+        if (testWebhook is not null && !string.IsNullOrEmpty(testWebhook.Token))
+        {
+            try
+            {
+                var testMessage = await _client.PostJsonAsync<Message>(
+                    $"/webhooks/{testWebhook.Id}/{testWebhook.Token}?wait=true",
+                    new { content = "\u200b" }, // zero-width space — minimal footprint
+                    ct);
+
+                // Delete the test message immediately
+                try
+                {
+                    await _client.DeleteAsync(
+                        $"/webhooks/{testWebhook.Id}/{testWebhook.Token}/messages/{testMessage.Id}", ct);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "Failed to delete test message {MessageId} — manual cleanup may be needed", testMessage.Id);
+                }
+            }
+            catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
+            {
+                _logger.Debug("403 when executing webhook in destination channel {ChannelId}", channelId);
+                issues.Add(new PermissionIssue(
+                    "destination",
+                    "SEND_MESSAGES",
+                    "The bot's webhook cannot send messages in the destination channel. Grant the SEND_MESSAGES permission."));
+            }
+
+            // Clean up the test webhook
+            try
+            {
+                await _client.DeleteAsync($"/webhooks/{testWebhook.Id}", ct);
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Failed to delete test webhook {WebhookId} — manual cleanup may be needed", testWebhook.Id);
+            }
         }
     }
 }

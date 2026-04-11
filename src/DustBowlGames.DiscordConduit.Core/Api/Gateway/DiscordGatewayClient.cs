@@ -357,10 +357,13 @@ public sealed class DiscordGatewayClient : IDisposable
         var identify = new
         {
             token = _botToken,
-            intents = (int)GatewayIntents.Guilds,
+            intents = (int)(GatewayIntents.Guilds | GatewayIntents.GuildMessages | GatewayIntents.MessageContent),
             properties = new
             {
-                os = "windows",
+                os = OperatingSystem.IsWindows() ? "windows"
+                    : OperatingSystem.IsMacOS() ? "macos"
+                    : OperatingSystem.IsLinux() ? "linux"
+                    : "unknown",
                 browser = "DiscordConduit",
                 device = "DiscordConduit"
             }
@@ -422,8 +425,14 @@ public sealed class DiscordGatewayClient : IDisposable
         // Wait before reconnecting
         await Task.Delay(TimeSpan.FromSeconds(5), ct);
 
-        var url = _resumeGatewayUrl ?? "wss://gateway.discord.gg";
-        url = $"{url}?v=10&encoding=json";
+        var baseUrl = _resumeGatewayUrl;
+        if (baseUrl is null)
+        {
+            var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", ct);
+            baseUrl = gatewayInfo.Url;
+        }
+
+        var url = $"{baseUrl}?v=10&encoding=json";
 
         _logger.Information("Reconnecting to gateway: {Url}", url);
 

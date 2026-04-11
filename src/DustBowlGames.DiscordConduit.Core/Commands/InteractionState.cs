@@ -20,7 +20,10 @@ public sealed class InteractionSession
     /// <summary>Number of messages to move (-1 means all from the target message downward).</summary>
     public int MessageCount { get; set; }
 
-    /// <summary>The selected action: "channel" or "thread".</summary>
+    /// <summary>The end message ID for range-based moves.</summary>
+    public string? EndMessageId { get; set; }
+
+    /// <summary>The selected action: "channel", "thread", "as_thread", or "as_forum".</summary>
     public string? Action { get; set; }
 
     /// <summary>The destination channel or thread ID.</summary>

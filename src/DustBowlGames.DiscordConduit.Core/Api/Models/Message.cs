@@ -51,6 +51,10 @@ public sealed class Message
     [JsonPropertyName("message_reference")]
     public MessageReference? MessageReference { get; init; }
 
+    /// <summary>Sticker items attached to this message.</summary>
+    [JsonPropertyName("sticker_items")]
+    public List<StickerItem>? StickerItems { get; init; }
+
     /// <summary>The type of message (0 = default, 19 = reply, 7 = guild member join, etc.).</summary>
     [JsonPropertyName("type")]
     public int Type { get; init; }
@@ -62,6 +66,10 @@ public sealed class Message
     /// <summary>Whether this message is a reply to another message.</summary>
     [JsonIgnore]
     public bool IsReply => Type == 19 || MessageReference is not null;
+
+    /// <summary>Whether this message has stickers attached.</summary>
+    [JsonIgnore]
+    public bool HasStickers => StickerItems is { Count: > 0 };
 
     /// <summary>Gets the Unix timestamp in seconds from the message's ISO 8601 timestamp.</summary>
     [JsonIgnore]

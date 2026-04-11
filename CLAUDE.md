@@ -25,6 +25,14 @@ dotnet test
 - Bot tokens stored in OS credential store, never plaintext.
 - Branding: "Discord Conduit" in user-facing copy. "DustBowl Games" only in LICENSE, README footer, About dialog.
 
+## Bot commands
+
+- **Move This** (context menu) — moves the single right-clicked message.
+- **Move This & Below** (context menu) — moves from the right-clicked message to the end of the channel.
+- **/move-range** — slash command with start/end message IDs.
+- **/move-thread** — slash command to move an entire thread or forum post.
+- Multi-step flow: action select -> destination -> confirmation -> move -> delete/keep.
+
 ## Architecture decisions
 
 - Rate limiting is centralized in `RateLimiter`. All delays come from Discord response headers, no hard-coded sleeps.
@@ -32,3 +40,5 @@ dotnet test
 - Messages are posted via webhook with original author's username/avatar. No header text is added to message content.
 - Reactions are migrated in a second pass after all messages are posted.
 - The Core library exposes `MigrationEngine` as the main entry point with `IProgress<T>` for progress and `CancellationToken` for cancellation.
+- Gateway client connects via WebSocket for slash command support. Supports IDENTIFY, RESUME, heartbeat, and reconnection with exponential backoff.
+- Stickers cannot be migrated via webhook. Preview warns about sticker-containing messages.

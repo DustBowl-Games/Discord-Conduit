@@ -70,6 +70,7 @@ public sealed class MigrationEngine
         var oversizedAttachments = new List<OversizedAttachment>();
         var warnings = new List<string>();
         var reactionCount = 0;
+        var stickerMessageCount = 0;
 
         foreach (var message in allMessages)
         {
@@ -90,6 +91,11 @@ public sealed class MigrationEngine
                 }
             }
 
+            if (message.HasStickers)
+            {
+                stickerMessageCount++;
+            }
+
             if (options.IncludeReactions && message.Reactions is { Count: > 0 })
             {
                 foreach (var reaction in message.Reactions)
@@ -102,6 +108,11 @@ public sealed class MigrationEngine
         if (oversizedAttachments.Count > 0)
         {
             warnings.Add($"{oversizedAttachments.Count} attachment(s) exceed the 8 MB bot upload limit and will be skipped.");
+        }
+
+        if (stickerMessageCount > 0)
+        {
+            warnings.Add($"{stickerMessageCount} message(s) contain stickers, which cannot be migrated via webhooks.");
         }
 
         // Estimate: ~2 messages/sec, ~1 reaction/sec

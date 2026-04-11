@@ -194,28 +194,29 @@ public class MessageMigratorTests
 
         var result = _migrator.GetWebhookAvatarUrl(message);
 
-        Assert.Equal("https://cdn.discordapp.com/avatars/42/abc123.png?size=128", result);
+        Assert.Equal("https://cdn.discordapp.com/avatars/42/abc123.png", result);
     }
 
     [Fact]
-    public void GetWebhookAvatarUrl_AnimatedAvatar_ReturnsGifUrl()
+    public void GetWebhookAvatarUrl_AnimatedAvatar_ReturnsPngUrl()
     {
+        // Webhook avatar_url always uses .png (Discord rejects .gif for webhooks)
         var author = CreateUser(id: "42", avatar: "a_animated123");
         var message = CreateMessage(author: author);
 
         var result = _migrator.GetWebhookAvatarUrl(message);
 
-        Assert.Equal("https://cdn.discordapp.com/avatars/42/a_animated123.gif?size=128", result);
+        Assert.Equal("https://cdn.discordapp.com/avatars/42/a_animated123.png", result);
     }
 
     [Fact]
-    public void GetWebhookAvatarUrl_NoAvatar_ReturnsNull()
+    public void GetWebhookAvatarUrl_NoAvatar_ReturnsDefaultAvatarUrl()
     {
         var author = CreateUser(avatar: null);
         var message = CreateMessage(author: author);
 
         var result = _migrator.GetWebhookAvatarUrl(message);
 
-        Assert.Null(result);
+        Assert.StartsWith("https://cdn.discordapp.com/embed/avatars/", result);
     }
 }

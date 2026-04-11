@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Serilog;
 
 namespace DustBowlGames.DiscordConduit.Core.Migration;
 
@@ -156,5 +157,41 @@ public sealed class MigrationState
         }
 
         return states;
+    }
+
+    /// <summary>
+    /// Deletes migration state files older than the specified age.
+    /// </summary>
+    /// <param name="appDataPath">The application data directory.</param>
+    /// <param name="maxAgeDays">The maximum age in days. Files older than this will be deleted. Defaults to 30.</param>
+    /// <returns>A task that completes when cleanup is finished.</returns>
+    public static Task CleanupOldStatesAsync(string appDataPath, int maxAgeDays = 30)
+    {
+        var migrationsDir = Path.Combine(appDataPath, "migrations");
+        if (!Directory.Exists(migrationsDir))
+            return Task.CompletedTask;
+
+        var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
+        var files = Directory.GetFiles(migrationsDir, "*.json");
+
+        foreach (var file in files)
+        {
+            try
+            {
+                var lastWrite = File.GetLastWriteTimeUtc(file);
+                if (lastWrite < cutoff)
+                {
+                    File.Delete(file);
+                    Log.Logger.Information("Deleted old migration state file {FilePath} (last modified {LastWrite})",
+                        file, lastWrite);
+                }
+            }
+            catch (IOException ex)
+            {
+                Log.Logger.Warning(ex, "Failed to delete migration state file {FilePath}", file);
+            }
+        }
+
+        return Task.CompletedTask;
     }
 }

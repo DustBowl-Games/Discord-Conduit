@@ -20,12 +20,17 @@ public sealed class LinuxCredentialStore : ICredentialStore
         process.StartInfo = new ProcessStartInfo
         {
             FileName = "secret-tool",
-            Arguments = $"store --label=\"{targetKey}\" service {ServiceName} account \"{targetKey}\"",
             RedirectStandardInput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+        process.StartInfo.ArgumentList.Add("store");
+        process.StartInfo.ArgumentList.Add($"--label={targetKey}");
+        process.StartInfo.ArgumentList.Add("service");
+        process.StartInfo.ArgumentList.Add(ServiceName);
+        process.StartInfo.ArgumentList.Add("account");
+        process.StartInfo.ArgumentList.Add(targetKey);
 
         process.Start();
         await process.StandardInput.WriteAsync(secret).ConfigureAwait(false);
@@ -45,7 +50,7 @@ public sealed class LinuxCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         var result = await RunSecretToolAsync(
-            $"lookup service {ServiceName} account \"{targetKey}\"").ConfigureAwait(false);
+            "lookup", "service", ServiceName, "account", targetKey).ConfigureAwait(false);
 
         if (result.ExitCode != 0 || string.IsNullOrEmpty(result.StdOut))
         {
@@ -60,14 +65,14 @@ public sealed class LinuxCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         await RunSecretToolAsync(
-            $"clear service {ServiceName} account \"{targetKey}\"").ConfigureAwait(false);
+            "clear", "service", ServiceName, "account", targetKey).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
     public async Task<IReadOnlyList<string>> ListKeysAsync(string prefix)
     {
         var result = await RunSecretToolAsync(
-            $"search --all service {ServiceName}").ConfigureAwait(false);
+            "search", "--all", "service", ServiceName).ConfigureAwait(false);
 
         var keys = new List<string>();
 
@@ -103,18 +108,22 @@ public sealed class LinuxCredentialStore : ICredentialStore
         return keys;
     }
 
-    private static async Task<ProcessResult> RunSecretToolAsync(string args)
+    private static async Task<ProcessResult> RunSecretToolAsync(params string[] args)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
             FileName = "secret-tool",
-            Arguments = args,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
+
+        foreach (var arg in args)
+        {
+            process.StartInfo.ArgumentList.Add(arg);
+        }
 
         process.Start();
 

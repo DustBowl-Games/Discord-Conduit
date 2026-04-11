@@ -77,9 +77,9 @@ public sealed class MessageMigrator
     /// Gets the avatar CDN URL to use for the webhook message.
     /// </summary>
     /// <param name="message">The source message.</param>
-    /// <returns>The author's avatar URL, or <c>null</c> if no avatar is set.</returns>
-    public string? GetWebhookAvatarUrl(Message message)
+    /// <returns>The author's avatar URL suitable for webhook use.</returns>
+    public string GetWebhookAvatarUrl(Message message)
     {
-        return message.Author.GetAvatarUrl();
+        return message.Author.GetWebhookAvatarUrl();
     }
 }

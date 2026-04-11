@@ -19,7 +19,8 @@ internal sealed class Program
             .WriteTo.Console()
             .WriteTo.File(
                 Path.Combine(appDataPath, "logs", "conduit-.log"),
-                rollingInterval: RollingInterval.Day)
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 7)
             .CreateLogger();
 
         try
