@@ -50,14 +50,32 @@ public sealed class InteractionStateStore
     /// <summary>Stores or replaces a session.</summary>
     /// <param name="key">The session key.</param>
     /// <param name="session">The session to store.</param>
-    public void Set(string key, InteractionSession session) => _sessions[key] = session;
+    public void Set(string key, InteractionSession session)
+    {
+        PurgeExpired();
+        _sessions[key] = session;
+    }
 
     /// <summary>Retrieves a session by key, or null if not found.</summary>
     /// <param name="key">The session key.</param>
     /// <returns>The session if found; otherwise <c>null</c>.</returns>
-    public InteractionSession? Get(string key) => _sessions.GetValueOrDefault(key);
+    public InteractionSession? Get(string key)
+    {
+        PurgeExpired();
+        return _sessions.GetValueOrDefault(key);
+    }
 
     /// <summary>Removes a session by key.</summary>
     /// <param name="key">The session key.</param>
     public void Remove(string key) => _sessions.TryRemove(key, out _);
+
+    private void PurgeExpired()
+    {
+        var cutoff = DateTimeOffset.UtcNow.AddMinutes(-15);
+        foreach (var kvp in _sessions)
+        {
+            if (kvp.Value.CreatedAt < cutoff)
+                _sessions.TryRemove(kvp.Key, out _);
+        }
+    }
 }

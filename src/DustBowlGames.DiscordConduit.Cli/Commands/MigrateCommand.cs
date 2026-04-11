@@ -48,7 +48,7 @@ internal static class MigrateCommand
             var reactionEndpoints = new ReactionEndpoints(discordClient);
             var channelEndpoints = new ChannelEndpoints(discordClient);
             var messageMigrator = new MessageMigrator(logger);
-            using var cdnHttpClient = new HttpClient();
+            using var cdnHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             var attachmentHandler = new AttachmentHandler(cdnHttpClient, logger);
 
             var engine = new MigrationEngine(
@@ -152,7 +152,7 @@ internal static class MigrateCommand
             var reactionEndpoints = new ReactionEndpoints(discordClient);
             var channelEndpoints = new ChannelEndpoints(discordClient);
             var messageMigrator = new MessageMigrator(logger);
-            using var cdnHttpClient = new HttpClient();
+            using var cdnHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
             var attachmentHandler = new AttachmentHandler(cdnHttpClient, logger);
 
             var engine = new MigrationEngine(

@@ -16,8 +16,10 @@ public sealed class MacOsCredentialStore : ICredentialStore
     public async Task SaveAsync(string key, string secret)
     {
         var targetKey = KeyPrefix + key;
+        // Pass secret via stdin to avoid exposure in process args (visible via ps)
         var result = await RunSecurityAsync(
-            "add-generic-password", "-a", Account, "-s", targetKey, "-w", secret, "-U").ConfigureAwait(false);
+            stdinData: secret,
+            "add-generic-password", "-a", Account, "-s", targetKey, "-w", "-U").ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -31,7 +33,7 @@ public sealed class MacOsCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         var result = await RunSecurityAsync(
-            "find-generic-password", "-a", Account, "-s", targetKey, "-w").ConfigureAwait(false);
+            args: ["find-generic-password", "-a", Account, "-s", targetKey, "-w"]).ConfigureAwait(false);
 
         if (result.ExitCode != 0)
         {
@@ -46,48 +48,19 @@ public sealed class MacOsCredentialStore : ICredentialStore
     {
         var targetKey = KeyPrefix + key;
         await RunSecurityAsync(
-            "delete-generic-password", "-a", Account, "-s", targetKey).ConfigureAwait(false);
+            args: ["delete-generic-password", "-a", Account, "-s", targetKey]).ConfigureAwait(false);
     }
 
     /// <inheritdoc />
-    public async Task<IReadOnlyList<string>> ListKeysAsync(string prefix)
+    public Task<IReadOnlyList<string>> ListKeysAsync(string prefix)
     {
-        var fullPrefix = KeyPrefix + prefix;
-        var result = await RunSecurityAsync("dump-keychain").ConfigureAwait(false);
-        var keys = new List<string>();
-
-        if (result.ExitCode != 0)
-        {
-            return keys;
-        }
-
-        // Parse output lines looking for "svce" (service) entries matching our prefix.
-        foreach (var line in result.StdOut.Split('\n'))
-        {
-            var trimmed = line.Trim();
-            if (!trimmed.StartsWith("\"svce\"", StringComparison.Ordinal))
-            {
-                continue;
-            }
-
-            // Format: "svce"<blob>="DiscordConduit:somekey"
-            var eqIndex = trimmed.IndexOf('=');
-            if (eqIndex < 0)
-            {
-                continue;
-            }
-
-            var value = trimmed[(eqIndex + 1)..].Trim().Trim('"');
-            if (value.StartsWith(fullPrefix, StringComparison.Ordinal))
-            {
-                keys.Add(value[KeyPrefix.Length..]);
-            }
-        }
-
-        return keys;
+        // Profile names are tracked separately by ProfileManager (profiles.json).
+        // We don't enumerate the keychain — dump-keychain exposes the entire user
+        // keychain which is both a security concern and triggers macOS permission dialogs.
+        return Task.FromResult<IReadOnlyList<string>>(Array.Empty<string>());
     }
 
-    private static async Task<ProcessResult> RunSecurityAsync(params string[] args)
+    private static async Task<ProcessResult> RunSecurityAsync(string? stdinData = null, params string[] args)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
@@ -95,17 +68,23 @@ public sealed class MacOsCredentialStore : ICredentialStore
             FileName = "security",
             RedirectStandardOutput = true,
             RedirectStandardError = true,
+            RedirectStandardInput = stdinData is not null,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
 
-        // Use ArgumentList to avoid shell interpretation of secrets
         foreach (var arg in args)
         {
             process.StartInfo.ArgumentList.Add(arg);
         }
 
         process.Start();
+
+        if (stdinData is not null)
+        {
+            await process.StandardInput.WriteAsync(stdinData).ConfigureAwait(false);
+            process.StandardInput.Close();
+        }
 
         var stdOut = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
         var stdErr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);

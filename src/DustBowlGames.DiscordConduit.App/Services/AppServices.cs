@@ -72,7 +72,7 @@ public sealed class AppServices : IDisposable
         Interactions = new InteractionEndpoints(RestClient);
 
         var messageMigrator = new MessageMigrator(Log.Logger);
-        _cdnHttpClient = new HttpClient();
+        _cdnHttpClient = new HttpClient { Timeout = TimeSpan.FromMinutes(2) };
         var attachmentHandler = new AttachmentHandler(_cdnHttpClient, Log.Logger);
 
         Migration = new MigrationEngine(

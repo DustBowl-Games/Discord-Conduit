@@ -163,9 +163,10 @@ public sealed class MigrationState
     /// Deletes migration state files older than the specified age.
     /// </summary>
     /// <param name="appDataPath">The application data directory.</param>
+    /// <param name="logger">Logger instance for recording cleanup actions.</param>
     /// <param name="maxAgeDays">The maximum age in days. Files older than this will be deleted. Defaults to 30.</param>
     /// <returns>A task that completes when cleanup is finished.</returns>
-    public static Task CleanupOldStatesAsync(string appDataPath, int maxAgeDays = 30)
+    public static Task CleanupOldStatesAsync(string appDataPath, ILogger logger, int maxAgeDays = 30)
     {
         var migrationsDir = Path.Combine(appDataPath, "migrations");
         if (!Directory.Exists(migrationsDir))
@@ -182,13 +183,13 @@ public sealed class MigrationState
                 if (lastWrite < cutoff)
                 {
                     File.Delete(file);
-                    Log.Logger.Information("Deleted old migration state file {FilePath} (last modified {LastWrite})",
+                    logger.Information("Deleted old migration state file {FilePath} (last modified {LastWrite})",
                         file, lastWrite);
                 }
             }
             catch (IOException ex)
             {
-                Log.Logger.Warning(ex, "Failed to delete migration state file {FilePath}", file);
+                logger.Warning(ex, "Failed to delete migration state file {FilePath}", file);
             }
         }
 

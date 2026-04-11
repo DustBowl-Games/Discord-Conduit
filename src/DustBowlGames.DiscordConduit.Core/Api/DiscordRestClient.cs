@@ -57,7 +57,7 @@ public sealed class DiscordRestClient : IDisposable
             var body = await response.Content.ReadAsStringAsync();
             _logger.Error("Discord API error: {Method} {Path} -> {Status}: {Body}",
                 method, path, (int)response.StatusCode, body);
-            await EnsureSuccessAsync(response, "API", "request"); // throws with status code
+            response.EnsureSuccessStatusCode(); // throws HttpRequestException on non-2xx
         }
     }
 

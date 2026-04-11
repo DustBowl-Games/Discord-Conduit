@@ -10,7 +10,7 @@ namespace DustBowlGames.DiscordConduit.Core.Api.Gateway;
 /// WebSocket-based client for the Discord Gateway, handling heartbeats,
 /// identification, reconnection, and event dispatching.
 /// </summary>
-public sealed class DiscordGatewayClient : IDisposable
+public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
 {
     private readonly string _botToken;
     private readonly DiscordRestClient _restClient;
@@ -135,9 +135,16 @@ public sealed class DiscordGatewayClient : IDisposable
     }
 
     /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        await DisconnectAsync();
+    }
+
+    /// <inheritdoc />
     public void Dispose()
     {
-        DisconnectAsync().GetAwaiter().GetResult();
+        _cts?.Cancel();
+        _ws?.Dispose();
     }
 
     private async Task ReceiveLoopAsync(CancellationToken ct)
@@ -440,7 +447,7 @@ public sealed class DiscordGatewayClient : IDisposable
         await _ws.ConnectAsync(new Uri(url), ct);
 
         // The receive loop will handle Hello -> Resume/Identify
-        _ = Task.Run(() => ReceiveLoopAsync(ct), ct);
+        _receiveTask = Task.Run(() => ReceiveLoopAsync(ct), ct);
     }
 
     private static JsonElement SerializeToElement(object? value)

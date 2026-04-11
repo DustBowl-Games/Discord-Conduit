@@ -54,13 +54,19 @@ public sealed class MessageMigrator
     /// <returns>The combined content string for the webhook message.</returns>
     public string? BuildWebhookContent(Message message, string? replyReference)
     {
+        string? result;
         if (replyReference is null)
-            return message.Content;
+            result = message.Content;
+        else if (string.IsNullOrEmpty(message.Content))
+            result = replyReference;
+        else
+            result = $"{replyReference}\n{message.Content}";
 
-        if (string.IsNullOrEmpty(message.Content))
-            return replyReference;
+        // Discord webhook content limit is 2000 characters
+        if (result?.Length > 2000)
+            result = result[..1997] + "...";
 
-        return $"{replyReference}\n{message.Content}";
+        return result;
     }
 
     /// <summary>

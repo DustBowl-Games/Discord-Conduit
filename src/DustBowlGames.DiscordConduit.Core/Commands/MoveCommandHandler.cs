@@ -144,7 +144,7 @@ public sealed class MoveCommandHandler
         catch (Exception ex)
         {
             _logger.Error(ex, "Error handling command {CommandName}", interaction.Data.Name);
-            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
         }
     }
 
@@ -194,7 +194,7 @@ public sealed class MoveCommandHandler
         catch (Exception ex)
         {
             _logger.Error(ex, "Error handling component interaction {CustomId}", customId);
-            await TryEditOriginalAsync(interaction.Token, $"Error: {ex.Message}");
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
         }
     }
 
@@ -614,18 +614,25 @@ public sealed class MoveCommandHandler
             return;
         }
 
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(10));
+
         try
         {
-            await ExecuteMoveAsync(interaction, session, messages);
+            await ExecuteMoveAsync(interaction, session, messages, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.Warning("Move timed out after 10 minutes");
+            await TryEditOriginalAsync(interaction.Token, "Move timed out after 10 minutes.");
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Move execution failed");
-            await TryEditOriginalAsync(interaction.Token, $"Move failed: {ex.Message}");
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
         }
     }
 
-    private async Task ExecuteMoveAsync(InteractionCreateEvent interaction, InteractionSession session, List<Message> messages)
+    private async Task ExecuteMoveAsync(InteractionCreateEvent interaction, InteractionSession session, List<Message> messages, CancellationToken ct)
     {
         // Determine the webhook channel and optional thread ID based on the action
         var destChannelId = session.DestinationId!;
@@ -683,7 +690,7 @@ public sealed class MoveCommandHandler
         int movedCount;
         try
         {
-            movedCount = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId);
+            movedCount = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
@@ -703,7 +710,7 @@ public sealed class MoveCommandHandler
         {
             _logger.Error(ex, "Move failed for channel {ChannelId}", webhookChannelId);
             await TryEditOriginalAsync(interaction.Token,
-                $"\u274C Move failed: {ex.Message}. Check bot permissions and try again.");
+                $"\u274C {SanitizeErrorMessage(ex)}");
             return;
         }
 
@@ -805,7 +812,7 @@ public sealed class MoveCommandHandler
     //  Message moving logic
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<int> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null)
+    private async Task<int> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null, CancellationToken ct = default)
     {
         if (messages.Count == 0) return 0;
 
@@ -822,6 +829,8 @@ public sealed class MoveCommandHandler
         {
             foreach (var message in messages)
             {
+                ct.ThrowIfCancellationRequested();
+
                 if (!message.IsRegularMessage) continue;
 
                 var content = _messageMigrator.BuildWebhookContent(message, replyReference: null);
@@ -861,14 +870,14 @@ public sealed class MoveCommandHandler
                         var files = new List<(byte[] Data, string Filename, string? ContentType)>();
                         foreach (var attachment in uploadable)
                         {
-                            var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, CancellationToken.None);
+                            var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, ct);
                             files.Add(downloaded);
                         }
 
                         await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                             webhook.Id, webhook.Token!,
                             () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
-                            CancellationToken.None, threadId);
+                            ct, threadId);
                     }
                     else
                     {
@@ -880,11 +889,15 @@ public sealed class MoveCommandHandler
                             Embeds = richEmbeds
                         };
 
-                        var result = await _webhookEndpoints.ExecuteWebhookAsync(
-                            webhook.Id, webhook.Token!, payload, CancellationToken.None, threadId);
+                        await _webhookEndpoints.ExecuteWebhookAsync(
+                            webhook.Id, webhook.Token!, payload, ct, threadId);
                     }
 
                     moved++;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw; // Let cancellation propagate
                 }
                 catch (Exception ex)
                 {
@@ -1110,9 +1123,27 @@ public sealed class MoveCommandHandler
         catch (Exception ex) { _logger.Warning(ex, "Failed to edit interaction response"); }
     }
 
+    private static string SanitizeErrorMessage(Exception ex)
+    {
+        // Don't expose internal details like URLs (which may contain webhook tokens)
+        if (ex is HttpRequestException httpEx)
+        {
+            return httpEx.StatusCode switch
+            {
+                System.Net.HttpStatusCode.Forbidden => "Permission denied. Check bot permissions.",
+                System.Net.HttpStatusCode.NotFound => "Resource not found. The channel or message may have been deleted.",
+                System.Net.HttpStatusCode.TooManyRequests => "Rate limited by Discord. Please try again in a moment.",
+                _ => $"Discord API error ({(int?)httpEx.StatusCode}). Please try again."
+            };
+        }
+        return "An unexpected error occurred. Check bot logs for details.";
+    }
+
     private static string? GetOptionString(List<InteractionOption> options, string name)
     {
         var option = options.FirstOrDefault(o => o.Name == name);
+        if (option?.Value is JsonElement element)
+            return element.ValueKind == JsonValueKind.String ? element.GetString() : element.ToString();
         return option?.Value?.ToString();
     }
 
