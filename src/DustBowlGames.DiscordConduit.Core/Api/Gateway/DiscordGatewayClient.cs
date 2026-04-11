@@ -27,11 +27,7 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
     private bool _heartbeatAcked = true;
     private TaskCompletionSource _readyTcs = new();
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-    };
+    private static JsonSerializerOptions JsonOptions => Json.CoreJsonOptions.Default;
 
     /// <summary>
     /// Fires when an INTERACTION_CREATE dispatch event is received from the gateway.
@@ -169,6 +165,12 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
                     }
 
                     ms.Write(buffer, 0, result.Count);
+
+                    if (ms.Length > 4 * 1024 * 1024) // 4 MB sanity cap
+                    {
+                        _logger.Error("Gateway payload exceeded 4 MB limit, disconnecting");
+                        return;
+                    }
                 } while (!result.EndOfMessage);
 
                 var json = Encoding.UTF8.GetString(ms.GetBuffer(), 0, (int)ms.Length);
@@ -414,6 +416,11 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
 
         IsConnected = false;
 
+        // Cancel old tasks (heartbeat, receive loop)
+        _cts?.Cancel();
+        _cts = new CancellationTokenSource();
+        var newCt = _cts.Token;
+
         if (_ws is { State: WebSocketState.Open or WebSocketState.CloseReceived })
         {
             try
@@ -430,12 +437,12 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
         _ws?.Dispose();
 
         // Wait before reconnecting
-        await Task.Delay(TimeSpan.FromSeconds(5), ct);
+        await Task.Delay(TimeSpan.FromSeconds(5), newCt);
 
         var baseUrl = _resumeGatewayUrl;
         if (baseUrl is null)
         {
-            var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", ct);
+            var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", newCt);
             baseUrl = gatewayInfo.Url;
         }
 
@@ -444,10 +451,10 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
         _logger.Information("Reconnecting to gateway: {Url}", url);
 
         _ws = new ClientWebSocket();
-        await _ws.ConnectAsync(new Uri(url), ct);
+        await _ws.ConnectAsync(new Uri(url), newCt);
 
         // The receive loop will handle Hello -> Resume/Identify
-        _receiveTask = Task.Run(() => ReceiveLoopAsync(ct), ct);
+        _receiveTask = Task.Run(() => ReceiveLoopAsync(newCt), newCt);
     }
 
     private static JsonElement SerializeToElement(object? value)

@@ -97,7 +97,7 @@ public partial class ProfileManagerViewModel : ObservableObject
 
             if (IsConnected && ConnectedBotName?.Contains(SelectedProfile.Name) == true)
             {
-                _services.Disconnect();
+                await _services.DisconnectAsync();
                 IsConnected = false;
                 ConnectedBotName = null;
                 _onConnectionChanged(false);
@@ -142,7 +142,7 @@ public partial class ProfileManagerViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            _services.Disconnect();
+            await _services.DisconnectAsync();
             IsConnected = false;
             ConnectedBotName = null;
             _onConnectionChanged(false);

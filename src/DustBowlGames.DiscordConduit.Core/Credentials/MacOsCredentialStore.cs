@@ -88,7 +88,13 @@ public sealed class MacOsCredentialStore : ICredentialStore
 
         var stdOut = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
         var stdErr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-        await process.WaitForExitAsync().ConfigureAwait(false);
+
+        var exited = process.WaitForExit(TimeSpan.FromSeconds(10));
+        if (!exited)
+        {
+            process.Kill();
+            throw new TimeoutException("security did not respond within 10 seconds");
+        }
 
         return new ProcessResult(process.ExitCode, stdOut, stdErr);
     }

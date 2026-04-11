@@ -108,7 +108,10 @@ public sealed class ProfileManager
             Directory.CreateDirectory(directory);
         }
 
-        await using var stream = File.Create(_profilesFilePath);
+        var tempPath = _profilesFilePath + ".tmp";
+        await using var stream = File.Create(tempPath);
         await JsonSerializer.SerializeAsync(stream, profiles, JsonOptions).ConfigureAwait(false);
+        await stream.FlushAsync().ConfigureAwait(false);
+        File.Move(tempPath, _profilesFilePath, overwrite: true);
     }
 }

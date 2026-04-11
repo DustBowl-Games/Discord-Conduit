@@ -9,12 +9,7 @@ namespace DustBowlGames.DiscordConduit.Core.Migration;
 /// </summary>
 public sealed class MigrationState
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        WriteIndented = true,
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
+    private static JsonSerializerOptions JsonOptions => Core.Json.CoreJsonOptions.Default;
 
     /// <summary>Schema version of the state file.</summary>
     [JsonPropertyName("version")]
@@ -99,8 +94,9 @@ public sealed class MigrationState
     /// <returns>A migration ID in the format <c>{sourceId}-{destId}-{unix_timestamp}</c>.</returns>
     public static string GenerateMigrationId(string sourceId, string destId)
     {
-        var unixTimestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
-        return $"{sourceId}-{destId}-{unixTimestamp}";
+        var timestamp = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
+        var suffix = Guid.NewGuid().ToString("N")[..6];
+        return $"{sourceId}-{destId}-{timestamp}-{suffix}";
     }
 
     /// <summary>

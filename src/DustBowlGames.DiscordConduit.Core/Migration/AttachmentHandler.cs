@@ -15,11 +15,7 @@ public sealed class AttachmentHandler
     private readonly HttpClient _httpClient;
     private readonly ILogger _logger;
 
-    private static readonly JsonSerializerOptions JsonOptions = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-    };
+    private static JsonSerializerOptions JsonOptions => Core.Json.CoreJsonOptions.Default;
 
     /// <summary>
     /// Creates a new attachment handler.

@@ -816,7 +816,7 @@ public sealed class MoveCommandHandler
     {
         if (messages.Count == 0) return 0;
 
-        var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move");
+        var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move", ct);
 
         if (string.IsNullOrEmpty(webhook.Token))
         {
@@ -907,14 +907,14 @@ public sealed class MoveCommandHandler
         }
         finally
         {
-            try { await _webhookEndpoints.DeleteWebhookAsync(webhook.Id); }
+            try { await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct); }
             catch { /* best effort */ }
         }
 
         return moved;
     }
 
-    private async Task DeleteMessagesAsync(string channelId, List<Message> messages)
+    private async Task DeleteMessagesAsync(string channelId, List<Message> messages, CancellationToken ct = default)
     {
         var fourteenDaysAgo = DateTimeOffset.UtcNow.AddDays(-14);
         var recentIds = new List<string>();
@@ -931,15 +931,18 @@ public sealed class MoveCommandHandler
         // Bulk delete recent messages in batches of 100
         for (var i = 0; i < recentIds.Count; i += 100)
         {
+            ct.ThrowIfCancellationRequested();
             var batch = recentIds.Skip(i).Take(100).ToList();
             if (batch.Count >= 2)
             {
-                try { await _messageEndpoints.BulkDeleteMessagesAsync(channelId, batch); }
+                try { await _messageEndpoints.BulkDeleteMessagesAsync(channelId, batch, ct); }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { _logger.Warning(ex, "Bulk delete failed, falling back to individual delete"); }
             }
             else if (batch.Count == 1)
             {
-                try { await _messageEndpoints.DeleteMessageAsync(channelId, batch[0]); }
+                try { await _messageEndpoints.DeleteMessageAsync(channelId, batch[0], ct); }
+                catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { _logger.Warning(ex, "Failed to delete message {Id}", batch[0]); }
             }
         }
@@ -947,7 +950,9 @@ public sealed class MoveCommandHandler
         // Delete old messages individually
         foreach (var id in oldIds)
         {
-            try { await _messageEndpoints.DeleteMessageAsync(channelId, id); }
+            ct.ThrowIfCancellationRequested();
+            try { await _messageEndpoints.DeleteMessageAsync(channelId, id, ct); }
+            catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger.Warning(ex, "Failed to delete message {Id}", id); }
         }
     }

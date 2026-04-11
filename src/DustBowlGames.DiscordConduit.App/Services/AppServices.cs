@@ -59,7 +59,7 @@ public sealed class AppServices : IDisposable
     /// </summary>
     public async Task ConnectAsync(string botToken)
     {
-        Disconnect();
+        await DisconnectAsync();
 
         RestClient = new DiscordRestClient(botToken, Log.Logger);
 
@@ -127,12 +127,12 @@ public sealed class AppServices : IDisposable
     /// <summary>
     /// Disconnects from Discord, disposing the REST client and gateway.
     /// </summary>
-    public void Disconnect()
+    public async Task DisconnectAsync()
     {
         if (GatewayClient is not null)
         {
             GatewayClient.OnInteractionCreate -= HandleInteractionAsync;
-            try { GatewayClient.DisconnectAsync().GetAwaiter().GetResult(); }
+            try { await GatewayClient.DisconnectAsync(); }
             catch { /* best effort */ }
             GatewayClient = null;
         }
@@ -155,6 +155,6 @@ public sealed class AppServices : IDisposable
 
     public void Dispose()
     {
-        Disconnect();
+        DisconnectAsync().GetAwaiter().GetResult();
     }
 }

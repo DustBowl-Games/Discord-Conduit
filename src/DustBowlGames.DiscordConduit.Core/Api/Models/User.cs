@@ -46,8 +46,8 @@ public sealed class User
 
         // Default avatar: based on (user_id >> 22) % 6 for new username system,
         // or discriminator % 5 for legacy users
-        var index = Discriminator is not null and not "0"
-            ? int.Parse(Discriminator) % 5
+        var index = Discriminator is not null and not "0" && int.TryParse(Discriminator, out var disc)
+            ? disc % 5
             : (long.TryParse(Id, out var uid) ? (int)((uid >> 22) % 6) : 0);
         return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
     }
@@ -62,8 +62,8 @@ public sealed class User
             return $"https://cdn.discordapp.com/avatars/{Id}/{Avatar}.png";
         }
 
-        var index = Discriminator is not null and not "0"
-            ? int.Parse(Discriminator) % 5
+        var index = Discriminator is not null and not "0" && int.TryParse(Discriminator, out var disc)
+            ? disc % 5
             : (long.TryParse(Id, out var uid) ? (int)((uid >> 22) % 6) : 0);
         return $"https://cdn.discordapp.com/embed/avatars/{index}.png";
     }

@@ -36,7 +36,13 @@ public sealed class LinuxCredentialStore : ICredentialStore
         await process.StandardInput.WriteAsync(secret).ConfigureAwait(false);
         process.StandardInput.Close();
         var stdErr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-        await process.WaitForExitAsync().ConfigureAwait(false);
+
+        var exited = process.WaitForExit(TimeSpan.FromSeconds(10));
+        if (!exited)
+        {
+            process.Kill();
+            throw new TimeoutException("secret-tool did not respond within 10 seconds");
+        }
 
         if (process.ExitCode != 0)
         {
@@ -129,7 +135,13 @@ public sealed class LinuxCredentialStore : ICredentialStore
 
         var stdOut = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
         var stdErr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-        await process.WaitForExitAsync().ConfigureAwait(false);
+
+        var exited = process.WaitForExit(TimeSpan.FromSeconds(10));
+        if (!exited)
+        {
+            process.Kill();
+            throw new TimeoutException("secret-tool did not respond within 10 seconds");
+        }
 
         return new ProcessResult(process.ExitCode, stdOut, stdErr);
     }
