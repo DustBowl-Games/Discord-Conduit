@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Text.Json;
 using DustBowlGames.DiscordConduit.Core.Api.Endpoints;
 using DustBowlGames.DiscordConduit.Core.Api.Models;
+using DustBowlGames.DiscordConduit.Core.Json;
 using Serilog;
 
 namespace DustBowlGames.DiscordConduit.Core.Migration;
@@ -192,29 +194,69 @@ public sealed class MigrationEngine
             Options = options
         };
 
-        // Fetch all messages and process in chronological order
-        var allMessages = await FetchAllMessagesChronologicalAsync(options.SourceChannelId, ct);
-        state.TotalMessageCount = allMessages.Count;
+        // Create per-migration log file
+        var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
+        var migrationLogger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.File(migrationLogPath)
+            .CreateLogger();
 
-        await state.SaveAsync(_appDataPath);
+        migrationLogger.Information("Migration started: {MigrationId} from {Source} to {Destination} in guild {Guild}",
+            state.MigrationId, options.SourceChannelId, options.DestinationChannelId, options.GuildId);
+        migrationLogger.Information("Options: DryRun={DryRun}, IncludeReactions={IncludeReactions}",
+            options.DryRun, options.IncludeReactions);
 
-        var result = await MigrateMessagesAsync(state, allMessages, webhook, stopwatch, progress, ct);
-
-        // Clean up webhook if not a dry run
-        if (!options.DryRun)
+        string status = "completed";
+        try
         {
-            try
-            {
-                await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
-                _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
-            }
-            catch (Exception ex)
-            {
-                _logger.Warning(ex, "Failed to delete migration webhook {WebhookId}", webhook.Id);
-            }
-        }
+            // Fetch all messages and process in chronological order
+            var allMessages = await FetchAllMessagesChronologicalAsync(options.SourceChannelId, ct);
+            state.TotalMessageCount = allMessages.Count;
 
-        return result;
+            await state.SaveAsync(_appDataPath);
+
+            var result = await MigrateMessagesAsync(state, allMessages, webhook, stopwatch, progress, migrationLogger, ct);
+
+            // Clean up webhook if not a dry run
+            if (!options.DryRun)
+            {
+                try
+                {
+                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
+                    _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "Failed to delete migration webhook {WebhookId}", webhook.Id);
+                }
+            }
+
+            migrationLogger.Information(
+                "Migration completed: {Migrated} migrated, {Failed} failed, {Skipped} skipped in {Duration}",
+                result.TotalMigrated, result.TotalFailed, result.TotalSkipped, result.Duration);
+
+            // Write report.json
+            await WriteReportAsync(state, result, status);
+
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            status = "cancelled";
+            migrationLogger.Warning("Migration cancelled by user");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            status = "failed";
+            migrationLogger.Error(ex, "Migration failed");
+            throw;
+        }
+        finally
+        {
+            migrationLogger.Dispose();
+        }
     }
 
     /// <summary>
@@ -234,49 +276,87 @@ public sealed class MigrationEngine
         _logger.Information("Resuming migration {MigrationId} from message {LastMessageId}",
             state.MigrationId, state.LastSuccessfulSourceMessageId);
 
-        // Verify the webhook still exists; if not, create a new one
-        var webhook = await EnsureWebhookAsync(state, ct);
+        // Create per-migration log file (append to existing if resuming)
+        var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
+        Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
+        var migrationLogger = new LoggerConfiguration()
+            .MinimumLevel.Debug()
+            .WriteTo.File(migrationLogPath)
+            .CreateLogger();
 
-        // Fetch remaining messages after the last successful one
-        List<Message> remainingMessages;
-        if (state.LastSuccessfulSourceMessageId is not null)
+        migrationLogger.Information("Migration resumed: {MigrationId} from message {LastMessageId}",
+            state.MigrationId, state.LastSuccessfulSourceMessageId);
+
+        string status = "completed";
+        try
         {
-            remainingMessages = await FetchMessagesAfterAsync(
-                state.SourceChannelId, state.LastSuccessfulSourceMessageId, ct);
-        }
-        else
-        {
-            remainingMessages = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
-        }
+            // Verify the webhook still exists; if not, create a new one
+            var webhook = await EnsureWebhookAsync(state, ct);
 
-        state.TotalMessageCount = state.MigratedCount + remainingMessages.Count;
-        state.Phase = MigrationPhase.MigratingMessages;
-
-        // For reactions, we need ALL source messages (including already-migrated ones),
-        // not just the remaining slice, so reactions for previously migrated messages aren't skipped
-        List<Message>? allMessagesForReactions = null;
-        if (state.Options.IncludeReactions && !state.Options.DryRun)
-        {
-            allMessagesForReactions = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
-        }
-
-        var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, ct, allMessagesForReactions);
-
-        // Clean up webhook if not a dry run
-        if (!state.Options.DryRun)
-        {
-            try
+            // Fetch remaining messages after the last successful one
+            List<Message> remainingMessages;
+            if (state.LastSuccessfulSourceMessageId is not null)
             {
-                await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
-                _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
+                remainingMessages = await FetchMessagesAfterAsync(
+                    state.SourceChannelId, state.LastSuccessfulSourceMessageId, ct);
             }
-            catch (Exception ex)
+            else
             {
-                _logger.Warning(ex, "Failed to delete migration webhook {WebhookId}", webhook.Id);
+                remainingMessages = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
             }
-        }
 
-        return result;
+            state.TotalMessageCount = state.MigratedCount + remainingMessages.Count;
+            state.Phase = MigrationPhase.MigratingMessages;
+
+            // For reactions, we need ALL source messages (including already-migrated ones),
+            // not just the remaining slice, so reactions for previously migrated messages aren't skipped
+            List<Message>? allMessagesForReactions = null;
+            if (state.Options.IncludeReactions && !state.Options.DryRun)
+            {
+                allMessagesForReactions = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
+            }
+
+            var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, migrationLogger, ct, allMessagesForReactions);
+
+            // Clean up webhook if not a dry run
+            if (!state.Options.DryRun)
+            {
+                try
+                {
+                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
+                    _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Warning(ex, "Failed to delete migration webhook {WebhookId}", webhook.Id);
+                }
+            }
+
+            migrationLogger.Information(
+                "Migration completed: {Migrated} migrated, {Failed} failed, {Skipped} skipped in {Duration}",
+                result.TotalMigrated, result.TotalFailed, result.TotalSkipped, result.Duration);
+
+            // Write report.json
+            await WriteReportAsync(state, result, status);
+
+            return result;
+        }
+        catch (OperationCanceledException)
+        {
+            status = "cancelled";
+            migrationLogger.Warning("Migration cancelled by user");
+            throw;
+        }
+        catch (Exception ex)
+        {
+            status = "failed";
+            migrationLogger.Error(ex, "Migration failed");
+            throw;
+        }
+        finally
+        {
+            migrationLogger.Dispose();
+        }
     }
 
     /// <summary>
@@ -288,6 +368,7 @@ public sealed class MigrationEngine
         Webhook webhook,
         Stopwatch stopwatch,
         IProgress<MigrationProgress> progress,
+        ILogger migrationLogger,
         CancellationToken ct,
         List<Message>? allMessagesForReactions = null)
     {
@@ -314,11 +395,12 @@ public sealed class MigrationEngine
 
             try
             {
-                await MigrateSingleMessageAsync(state, message, webhook, ct);
+                await MigrateSingleMessageAsync(state, message, webhook, migrationLogger, ct);
             }
             catch (Exception ex)
             {
                 _logger.Error(ex, "Failed to migrate message {MessageId}", message.Id);
+                migrationLogger.Error(ex, "Failed to migrate message {MessageId}: {Reason}", message.Id, ex.Message);
                 state.FailedMessages.Add(new FailedMessage(
                     message.Id,
                     ex.Message,
@@ -368,6 +450,7 @@ public sealed class MigrationEngine
         MigrationState state,
         Message message,
         Webhook webhook,
+        ILogger migrationLogger,
         CancellationToken ct)
     {
         var replyReference = _messageMigrator.BuildReplyReference(message, state.MessageIdMap);
@@ -458,6 +541,8 @@ public sealed class MigrationEngine
         await state.SaveAsync(_appDataPath);
 
         _logger.Debug("Migrated message {SourceId} -> {DestId}",
+            message.Id, repostedMessage.Id);
+        migrationLogger.Debug("Migrated message {SourceId} -> {DestId}",
             message.Id, repostedMessage.Id);
     }
 
@@ -645,6 +730,52 @@ public sealed class MigrationEngine
             elapsed,
             estimatedRemaining,
             state.Phase));
+    }
+
+    /// <summary>
+    /// Writes a JSON report summarizing the migration outcome.
+    /// </summary>
+    private async Task WriteReportAsync(MigrationState state, MigrationResult result, string status)
+    {
+        try
+        {
+            var report = new
+            {
+                migrationId = state.MigrationId,
+                startedAt = state.StartedAt,
+                completedAt = DateTimeOffset.UtcNow,
+                status,
+                sourceChannelId = state.SourceChannelId,
+                destinationChannelId = state.DestinationChannelId,
+                guildId = state.GuildId,
+                options = new
+                {
+                    dryRun = state.Options.DryRun,
+                    includeReactions = state.Options.IncludeReactions
+                },
+                results = new
+                {
+                    totalMigrated = result.TotalMigrated,
+                    totalFailed = result.TotalFailed,
+                    totalSkipped = result.TotalSkipped,
+                    duration = result.Duration.ToString()
+                },
+                failedMessages = result.FailedMessages.Select(f => new
+                {
+                    sourceMessageId = f.SourceMessageId,
+                    reason = f.Reason,
+                    timestamp = f.Timestamp
+                })
+            };
+
+            var reportPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "report.json");
+            await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, CoreJsonOptions.Default));
+            _logger.Debug("Wrote migration report to {ReportPath}", reportPath);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to write migration report for {MigrationId}", state.MigrationId);
+        }
     }
 
     /// <summary>

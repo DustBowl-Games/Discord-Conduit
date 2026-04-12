@@ -67,6 +67,18 @@ public sealed class MessageEndpoints
     }
 
     /// <summary>
+    /// Sends a message to a channel.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="content">The message content.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The created message.</returns>
+    public Task<Message> CreateMessageAsync(string channelId, string content, CancellationToken ct = default)
+    {
+        return _client.PostJsonAsync<Message>($"/channels/{channelId}/messages", new { content }, ct);
+    }
+
+    /// <summary>
     /// Bulk deletes messages from a channel (2-100 messages, must be less than 14 days old).
     /// </summary>
     /// <param name="channelId">The channel's snowflake ID.</param>

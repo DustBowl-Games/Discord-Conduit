@@ -44,10 +44,11 @@ public class MigrationStateTests : IDisposable
         var id = MigrationState.GenerateMigrationId("111", "222");
 
         Assert.StartsWith("111-222-", id);
-        // The third segment should be a unix timestamp (numeric)
+        // Format: {sourceId}-{destId}-{timestamp}-{suffix}
         var parts = id.Split('-');
-        Assert.Equal(3, parts.Length);
+        Assert.Equal(4, parts.Length);
         Assert.True(long.TryParse(parts[2], out _));
+        Assert.Equal(6, parts[3].Length);
     }
 
     // --- GetStateFilePath ---
@@ -57,7 +58,7 @@ public class MigrationStateTests : IDisposable
     {
         var path = MigrationState.GetStateFilePath("/data/app", "my-migration");
 
-        Assert.Equal(Path.Combine("/data/app", "migrations", "my-migration.json"), path);
+        Assert.Equal(Path.Combine("/data/app", "migrations", "my-migration", "state.json"), path);
     }
 
     // --- SaveAsync / LoadAsync roundtrip ---

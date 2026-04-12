@@ -1,5 +1,6 @@
 using System.CommandLine;
 using DustBowlGames.DiscordConduit.Cli.Commands;
+using DustBowlGames.DiscordConduit.Core.Migration;
 using Serilog;
 
 namespace DustBowlGames.DiscordConduit.Cli;
@@ -25,6 +26,8 @@ internal sealed class Program
 
         try
         {
+            await MigrationState.CleanupOldStatesAsync(appDataPath, Log.Logger);
+
             var rootCommand = new RootCommand("Discord Conduit — migrate Discord messages between channels and threads");
 
             rootCommand.Subcommands.Add(ProfileCommand.Create(appDataPath));

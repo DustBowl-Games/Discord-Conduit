@@ -714,6 +714,20 @@ public sealed class MoveCommandHandler
             return;
         }
 
+        // Leave a breadcrumb in the source channel
+        try
+        {
+            var userId = GetUserId(interaction);
+            await _messageEndpoints.CreateMessageAsync(
+                session.SourceChannelId,
+                $"\U0001F4E6 **{movedCount} message(s) moved to <#{displayDestId}>** by <@{userId}>",
+                ct);
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to post move breadcrumb in source channel");
+        }
+
         // Store moved messages for potential deletion
         session.MovedMessages = messages;
 

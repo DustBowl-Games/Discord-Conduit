@@ -1,6 +1,13 @@
 # Discord Conduit
 
+<!-- Badges (update URLs once CI is configured) -->
+<!-- ![Build Status](https://github.com/DustBowl-Games/Discord-Conduit/actions/workflows/build.yml/badge.svg) -->
+<!-- ![License](https://img.shields.io/github/license/DustBowl-Games/Discord-Conduit) -->
+<!-- ![Latest Release](https://img.shields.io/github/v/release/DustBowl-Games/Discord-Conduit) -->
+
 A cross-platform desktop application that migrates Discord messages between channels and threads while preserving the original poster's identity.
+
+> **Getting started?** See the [Setup Guide](SETUP.md) for step-by-step instructions on creating a bot, configuring permissions, and running your first migration.
 
 ## What it does
 
@@ -22,19 +29,40 @@ Discord Conduit re-posts messages from a source channel or thread to a destinati
 
 ## Requirements
 
-- A Discord bot token with the following permissions in both source and destination:
-  - `READ_MESSAGE_HISTORY`
-  - `MANAGE_WEBHOOKS`
-  - `SEND_MESSAGES`
-  - `ADD_REACTIONS` (if migrating reactions)
+- .NET 10 SDK (for building from source)
+- A Discord bot token (see [Setup Guide](SETUP.md#creating-a-discord-bot) for how to create one)
 
-## Building from source
+### Required Bot Permissions
+
+The bot needs these permissions in **both** the source and destination channels:
+
+| Permission              | Required for                                    |
+|-------------------------|-------------------------------------------------|
+| View Channels           | Browsing available channels and threads          |
+| Read Message History    | Reading messages from the source channel         |
+| Send Messages           | Posting migrated messages to the destination     |
+| Manage Webhooks         | Creating webhooks to preserve author identity    |
+| Add Reactions           | Re-adding reactions to migrated messages          |
+
+**OAuth2 Scopes:** `bot`, `applications.commands`
+
+## Installation
+
+### Download a Release
+
+Download the latest build for your platform from [GitHub Releases](https://github.com/DustBowl-Games/Discord-Conduit/releases).
+
+### Build from Source
 
 ```bash
+git clone https://github.com/DustBowl-Games/Discord-Conduit.git
+cd Discord-Conduit
 dotnet restore
 dotnet build
 dotnet run --project src/DustBowlGames.DiscordConduit.App
 ```
+
+For detailed setup instructions including bot creation, CLI usage, and troubleshooting, see the [Setup Guide](SETUP.md).
 
 ## License
 

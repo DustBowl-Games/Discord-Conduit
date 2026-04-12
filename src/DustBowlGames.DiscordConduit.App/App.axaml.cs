@@ -4,6 +4,7 @@ using Avalonia.Markup.Xaml;
 using DustBowlGames.DiscordConduit.App.Services;
 using DustBowlGames.DiscordConduit.App.Views;
 using DustBowlGames.DiscordConduit.App.ViewModels;
+using DustBowlGames.DiscordConduit.Core.Migration;
 using Serilog;
 
 namespace DustBowlGames.DiscordConduit.App;
@@ -19,13 +20,21 @@ public partial class App : Application
 
     public override void OnFrameworkInitializationCompleted()
     {
+        var appDataPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "DiscordConduit");
+        Directory.CreateDirectory(appDataPath);
+
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()
             .WriteTo.File(
-                Path.Combine(AppContext.BaseDirectory, "logs", "discord-conduit-.log"),
+                Path.Combine(appDataPath, "logs", "discord-conduit-.log"),
                 rollingInterval: RollingInterval.Day,
                 retainedFileCountLimit: 7)
             .CreateLogger();
+
+        // Clean up old migration state files
+        MigrationState.CleanupOldStatesAsync(appDataPath, Log.Logger).GetAwaiter().GetResult();
 
         _services = new AppServices();
 

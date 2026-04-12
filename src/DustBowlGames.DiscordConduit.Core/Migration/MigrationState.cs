@@ -83,7 +83,7 @@ public sealed class MigrationState
     /// <returns>The full path to the state JSON file.</returns>
     public static string GetStateFilePath(string appDataPath, string migrationId)
     {
-        return Path.Combine(appDataPath, "migrations", $"{migrationId}.json");
+        return Path.Combine(appDataPath, "migrations", migrationId, "state.json");
     }
 
     /// <summary>
@@ -142,10 +142,19 @@ public sealed class MigrationState
         if (!Directory.Exists(migrationsDir))
             return [];
 
-        var files = Directory.GetFiles(migrationsDir, "*.json");
         var states = new List<MigrationState>();
 
-        foreach (var file in files)
+        // Load from new directory-based structure: migrations/{id}/state.json
+        foreach (var dir in Directory.GetDirectories(migrationsDir))
+        {
+            var stateFile = Path.Combine(dir, "state.json");
+            var state = await LoadAsync(stateFile);
+            if (state is not null)
+                states.Add(state);
+        }
+
+        // Also load legacy flat files: migrations/{id}.json
+        foreach (var file in Directory.GetFiles(migrationsDir, "*.json"))
         {
             var state = await LoadAsync(file);
             if (state is not null)
@@ -169,9 +178,32 @@ public sealed class MigrationState
             return Task.CompletedTask;
 
         var cutoff = DateTime.UtcNow.AddDays(-maxAgeDays);
-        var files = Directory.GetFiles(migrationsDir, "*.json");
 
-        foreach (var file in files)
+        // Clean up new directory-based structure: migrations/{id}/
+        foreach (var dir in Directory.GetDirectories(migrationsDir))
+        {
+            try
+            {
+                var stateFile = Path.Combine(dir, "state.json");
+                if (!File.Exists(stateFile))
+                    continue;
+
+                var lastWrite = File.GetLastWriteTimeUtc(stateFile);
+                if (lastWrite < cutoff)
+                {
+                    Directory.Delete(dir, recursive: true);
+                    logger.Information("Deleted old migration directory {DirPath} (last modified {LastWrite})",
+                        dir, lastWrite);
+                }
+            }
+            catch (IOException ex)
+            {
+                logger.Warning(ex, "Failed to delete migration directory {DirPath}", dir);
+            }
+        }
+
+        // Clean up legacy flat files: migrations/{id}.json
+        foreach (var file in Directory.GetFiles(migrationsDir, "*.json"))
         {
             try
             {
