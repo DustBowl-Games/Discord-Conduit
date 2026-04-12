@@ -41,6 +41,15 @@ public sealed class AttachmentHandler
         _logger.Debug("Downloading attachment {Filename} ({Size} bytes) from {Url}",
             attachment.Filename, attachment.Size, attachment.Url);
 
+        var uri = new Uri(attachment.Url);
+        if (!uri.Host.EndsWith(".discordapp.com", StringComparison.OrdinalIgnoreCase) &&
+            !uri.Host.EndsWith(".discord.com", StringComparison.OrdinalIgnoreCase) &&
+            !uri.Host.EndsWith(".discordapp.net", StringComparison.OrdinalIgnoreCase))
+        {
+            _logger.Warning("Skipping attachment with non-Discord URL host: {Host}", uri.Host);
+            throw new InvalidOperationException($"Attachment URL is not from a Discord CDN host: {uri.Host}");
+        }
+
         var response = await _httpClient.GetAsync(attachment.Url, ct);
         response.EnsureSuccessStatusCode();
 
@@ -104,7 +113,16 @@ public sealed class AttachmentHandler
             var fileContent = new ByteArrayContent(data);
 
             if (contentType is not null)
-                fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+            {
+                try
+                {
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue(contentType);
+                }
+                catch (FormatException)
+                {
+                    fileContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                }
+            }
 
             multipart.Add(fileContent, $"files[{i}]", filename);
         }

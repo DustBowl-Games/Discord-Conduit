@@ -83,6 +83,8 @@ public sealed class MigrationState
     /// <returns>The full path to the state JSON file.</returns>
     public static string GetStateFilePath(string appDataPath, string migrationId)
     {
+        if (!System.Text.RegularExpressions.Regex.IsMatch(migrationId, @"^[\d\-a-f]+$"))
+            throw new ArgumentException($"Invalid migration ID format: {migrationId}", nameof(migrationId));
         return Path.Combine(appDataPath, "migrations", migrationId, "state.json");
     }
 

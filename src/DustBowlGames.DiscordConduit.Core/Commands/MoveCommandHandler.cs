@@ -80,14 +80,15 @@ public sealed class MoveCommandHandler
         return
         [
             // Context menu commands (type 3 = MESSAGE)
-            new ApplicationCommand { Name = MoveThisCommand, Type = 3, Description = string.Empty },
-            new ApplicationCommand { Name = MoveThisBelowCommand, Type = 3, Description = string.Empty },
+            new ApplicationCommand { Name = MoveThisCommand, Type = 3, Description = string.Empty, DefaultMemberPermissions = "8192" },
+            new ApplicationCommand { Name = MoveThisBelowCommand, Type = 3, Description = string.Empty, DefaultMemberPermissions = "8192" },
             // Slash commands (type 1 = CHAT_INPUT)
             new ApplicationCommand
             {
                 Name = MoveRangeCommand,
                 Type = 1,
                 Description = "Move a range of messages between two message IDs",
+                DefaultMemberPermissions = "8192",
                 Options =
                 [
                     new ApplicationCommandOption { Name = "start", Type = 3, Description = "ID of the first message", Required = true },
@@ -99,6 +100,7 @@ public sealed class MoveCommandHandler
                 Name = MoveThreadCommand,
                 Type = 1,
                 Description = "Move a thread or forum post to another channel",
+                DefaultMemberPermissions = "8192",
                 Options =
                 [
                     new ApplicationCommandOption { Name = "thread", Type = 7, Description = "Thread or forum post to move", Required = true }

@@ -26,6 +26,7 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
     private string? _resumeGatewayUrl;
     private bool _heartbeatAcked = true;
     private TaskCompletionSource _readyTcs = new();
+    private readonly SemaphoreSlim _reconnectLock = new(1, 1);
 
     private static JsonSerializerOptions JsonOptions => Json.CoreJsonOptions.Default;
 
@@ -414,47 +415,59 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
     {
         if (ct.IsCancellationRequested) return;
 
-        IsConnected = false;
-
-        // Cancel old tasks (heartbeat, receive loop)
-        _cts?.Cancel();
-        _cts = new CancellationTokenSource();
-        var newCt = _cts.Token;
-
-        if (_ws is { State: WebSocketState.Open or WebSocketState.CloseReceived })
+        if (!await _reconnectLock.WaitAsync(0)) // non-blocking try
         {
-            try
-            {
-                using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-                await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Reconnecting", closeCts.Token);
-            }
-            catch (Exception ex)
-            {
-                _logger.Debug(ex, "Error closing WebSocket during reconnect");
-            }
+            _logger.Debug("Reconnect already in progress, skipping");
+            return;
         }
-
-        _ws?.Dispose();
-
-        // Wait before reconnecting
-        await Task.Delay(TimeSpan.FromSeconds(5), newCt);
-
-        var baseUrl = _resumeGatewayUrl;
-        if (baseUrl is null)
+        try
         {
-            var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", newCt);
-            baseUrl = gatewayInfo.Url;
+            IsConnected = false;
+
+            // Cancel old tasks (heartbeat, receive loop)
+            _cts?.Cancel();
+            _cts = new CancellationTokenSource();
+            var newCt = _cts.Token;
+
+            if (_ws is { State: WebSocketState.Open or WebSocketState.CloseReceived })
+            {
+                try
+                {
+                    using var closeCts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+                    await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Reconnecting", closeCts.Token);
+                }
+                catch (Exception ex)
+                {
+                    _logger.Debug(ex, "Error closing WebSocket during reconnect");
+                }
+            }
+
+            _ws?.Dispose();
+
+            // Wait before reconnecting
+            await Task.Delay(TimeSpan.FromSeconds(5), newCt);
+
+            var baseUrl = _resumeGatewayUrl;
+            if (baseUrl is null)
+            {
+                var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", newCt);
+                baseUrl = gatewayInfo.Url;
+            }
+
+            var url = $"{baseUrl}?v=10&encoding=json";
+
+            _logger.Information("Reconnecting to gateway: {Url}", url);
+
+            _ws = new ClientWebSocket();
+            await _ws.ConnectAsync(new Uri(url), newCt);
+
+            // The receive loop will handle Hello -> Resume/Identify
+            _receiveTask = Task.Run(() => ReceiveLoopAsync(newCt), newCt);
         }
-
-        var url = $"{baseUrl}?v=10&encoding=json";
-
-        _logger.Information("Reconnecting to gateway: {Url}", url);
-
-        _ws = new ClientWebSocket();
-        await _ws.ConnectAsync(new Uri(url), newCt);
-
-        // The receive loop will handle Hello -> Resume/Identify
-        _receiveTask = Task.Run(() => ReceiveLoopAsync(newCt), newCt);
+        finally
+        {
+            _reconnectLock.Release();
+        }
     }
 
     private static JsonElement SerializeToElement(object? value)

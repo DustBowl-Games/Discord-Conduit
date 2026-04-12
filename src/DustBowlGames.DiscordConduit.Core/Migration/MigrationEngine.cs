@@ -195,6 +195,8 @@ public sealed class MigrationEngine
         };
 
         // Create per-migration log file
+        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+            throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
         var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
         var migrationLogger = new LoggerConfiguration()
@@ -277,6 +279,8 @@ public sealed class MigrationEngine
             state.MigrationId, state.LastSuccessfulSourceMessageId);
 
         // Create per-migration log file (append to existing if resuming)
+        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+            throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
         var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
         var migrationLogger = new LoggerConfiguration()
@@ -768,6 +772,8 @@ public sealed class MigrationEngine
                 })
             };
 
+            if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+                throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
             var reportPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "report.json");
             await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, CoreJsonOptions.Default));
             _logger.Debug("Wrote migration report to {ReportPath}", reportPath);

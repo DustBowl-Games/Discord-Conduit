@@ -406,6 +406,10 @@ public sealed class ApplicationCommand
     /// <summary>Parameters for the command, if any.</summary>
     [JsonPropertyName("options")]
     public List<ApplicationCommandOption>? Options { get; init; }
+
+    /// <summary>Default member permissions required to use this command (as a string bitmask).</summary>
+    [JsonPropertyName("default_member_permissions")]
+    public string? DefaultMemberPermissions { get; init; }
 }
 
 /// <summary>

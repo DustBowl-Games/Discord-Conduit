@@ -46,6 +46,16 @@ public sealed class DiscordRestClient : IDisposable
     /// <summary>Constructs a full URL from a relative API path.</summary>
     private static string BuildUrl(string path) => $"{BaseUrl}{path}";
 
+    private static string SanitizePathForLogging(string path)
+    {
+        // Strip interaction tokens and webhook tokens from paths for log safety
+        // Patterns: /interactions/{id}/{token}/... and /webhooks/{id}/{token}/...
+        return System.Text.RegularExpressions.Regex.Replace(
+            path,
+            @"(/(?:interactions|webhooks)/\d+/)[^/]+",
+            "$1[REDACTED]");
+    }
+
     /// <summary>Ensures success, logging the response body on failure for debugging.</summary>
     private async Task EnsureSuccessAsync(HttpResponseMessage response, string method, string path)
     {
@@ -67,7 +77,7 @@ public sealed class DiscordRestClient : IDisposable
             }
 
             _logger.Error("Discord API error: {Method} {Path} -> {Status}: {Body}",
-                method, path, (int)response.StatusCode, logBody);
+                method, SanitizePathForLogging(path), (int)response.StatusCode, logBody);
             response.EnsureSuccessStatusCode(); // throws HttpRequestException on non-2xx
         }
     }

@@ -177,7 +177,7 @@ public sealed class RateLimiter
             if (double.TryParse(retryValues.First(), System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var seconds))
             {
-                return TimeSpan.FromSeconds(seconds);
+                return TimeSpan.FromSeconds(Math.Min(seconds, 60));
             }
         }
 
@@ -188,7 +188,7 @@ public sealed class RateLimiter
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("retry_after", out var retryAfterProp))
             {
-                return TimeSpan.FromSeconds(retryAfterProp.GetDouble());
+                return TimeSpan.FromSeconds(Math.Min(retryAfterProp.GetDouble(), 60));
             }
         }
         catch
