@@ -199,9 +199,12 @@ public sealed class MigrationEngine
             throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
         var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
+        // Use {Message:j} to JSON-escape log message values, preventing log injection
+        // from Discord-sourced content (usernames, message text)
         var migrationLogger = new LoggerConfiguration()
             .MinimumLevel.Debug()
-            .WriteTo.File(migrationLogPath)
+            .WriteTo.File(migrationLogPath,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:j}{NewLine}{Exception}")
             .CreateLogger();
 
         migrationLogger.Information("Migration started: {MigrationId} from {Source} to {Destination} in guild {Guild}",
@@ -285,7 +288,8 @@ public sealed class MigrationEngine
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
         var migrationLogger = new LoggerConfiguration()
             .MinimumLevel.Debug()
-            .WriteTo.File(migrationLogPath)
+            .WriteTo.File(migrationLogPath,
+                outputTemplate: "{Timestamp:yyyy-MM-dd HH:mm:ss.fff} [{Level:u3}] {Message:j}{NewLine}{Exception}")
             .CreateLogger();
 
         migrationLogger.Information("Migration resumed: {MigrationId} from message {LastMessageId}",

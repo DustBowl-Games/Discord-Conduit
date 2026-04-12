@@ -75,7 +75,11 @@ public sealed class MessageEndpoints
     /// <returns>The created message.</returns>
     public Task<Message> CreateMessageAsync(string channelId, string content, CancellationToken ct = default)
     {
-        return _client.PostJsonAsync<Message>($"/channels/{channelId}/messages", new { content }, ct);
+        return _client.PostJsonAsync<Message>($"/channels/{channelId}/messages", new
+        {
+            content,
+            allowed_mentions = new { parse = Array.Empty<string>() }
+        }, ct);
     }
 
     /// <summary>

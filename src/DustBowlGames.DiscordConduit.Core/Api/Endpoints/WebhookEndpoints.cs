@@ -23,6 +23,10 @@ public sealed class WebhookExecutePayload
     /// <summary>Embedded rich content (up to 10 embeds).</summary>
     [JsonPropertyName("embeds")]
     public List<Embed>? Embeds { get; init; }
+
+    /// <summary>Controls which mentions are parsed in the message content. Defaults to suppressing all mentions.</summary>
+    [JsonPropertyName("allowed_mentions")]
+    public object AllowedMentions { get; init; } = new { parse = Array.Empty<string>() };
 }
 
 /// <summary>

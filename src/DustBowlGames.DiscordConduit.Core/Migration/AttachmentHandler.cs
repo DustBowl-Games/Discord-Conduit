@@ -103,6 +103,9 @@ public sealed class AttachmentHandler
         if (embeds is { Count: > 0 })
             payload["embeds"] = embeds;
 
+        // Suppress all mentions to prevent @everyone/@here injection via migrated content
+        payload["allowed_mentions"] = new { parse = Array.Empty<string>() };
+
         var payloadJson = JsonSerializer.Serialize(payload, JsonOptions);
         var payloadContent = new StringContent(payloadJson, Encoding.UTF8, "application/json");
         multipart.Add(payloadContent, "payload_json");
@@ -124,7 +127,9 @@ public sealed class AttachmentHandler
                 }
             }
 
-            multipart.Add(fileContent, $"files[{i}]", filename);
+            // Sanitize filename to prevent CRLF injection in Content-Disposition header
+            var safeFilename = filename.ReplaceLineEndings("_").Replace("\"", "_");
+            multipart.Add(fileContent, $"files[{i}]", safeFilename);
         }
 
         return multipart;
