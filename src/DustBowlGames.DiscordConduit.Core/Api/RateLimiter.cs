@@ -13,11 +13,24 @@ public sealed class RateLimiter
 {
     private readonly ConcurrentDictionary<string, BucketState> _buckets = new();
     private readonly ConcurrentDictionary<string, string> _routeToBucket = new();
+    // One gate per bucket (or per route before its bucket is known). Held across the
+    // admit -> send -> header-update window so two requests to the same bucket can't both
+    // see the last token and both fire. Keyed independently from _buckets so unrelated
+    // buckets never block each other.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _bucketGates = new();
     private readonly ILogger _logger;
     private readonly TimeProvider _timeProvider;
 
-    // Global rate limit: stored as ticks for atomic access via Interlocked
+    // Global rate limit (reactive backstop): stored as ticks for atomic access via Interlocked.
     private long _globalResetAtTicks = DateTimeOffset.MinValue.UtcTicks;
+
+    // Proactive global limiter: Discord allows ~50 requests/second globally. We keep this
+    // conservative and use a sliding-window counter. Set deliberately at the documented cap so
+    // normal traffic is never throttled by us — only genuine bursts above the cap wait.
+    private const int GlobalRequestsPerSecond = 50;
+    private readonly object _globalWindowLock = new();
+    private long _globalWindowStartTicks;
+    private int _globalWindowCount;
 
     /// <summary>
     /// Creates a new rate limiter.
@@ -45,15 +58,29 @@ public sealed class RateLimiter
         Func<HttpRequestMessage> requestFactory,
         CancellationToken ct = default)
     {
-        await WaitForBucketAsync(routeKey, ct);
-        await WaitForGlobalAsync(ct);
+        // Serialize the admit -> send -> header-update window per bucket so concurrent requests
+        // to the same bucket are admitted one at a time and each one sees the previous response's
+        // updated remaining/reset state. The gate is released before any long 429 retry delay so
+        // unrelated buckets aren't blocked.
+        var gate = GetBucketGate(routeKey);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
+        HttpResponseMessage response;
+        try
+        {
+            await WaitForBucketAsync(routeKey, ct).ConfigureAwait(false);
+            await WaitForGlobalAsync(ct).ConfigureAwait(false);
 
-        var response = await httpClient.SendAsync(requestFactory(), ct);
-        UpdateBucketState(routeKey, response);
+            response = await httpClient.SendAsync(requestFactory(), ct).ConfigureAwait(false);
+            UpdateBucketState(routeKey, response);
+        }
+        finally
+        {
+            gate.Release();
+        }
 
         if (response.StatusCode == HttpStatusCode.TooManyRequests)
         {
-            var retryAfter = await GetRetryAfterAsync(response, ct);
+            var retryAfter = await GetRetryAfterAsync(response, ct).ConfigureAwait(false);
             _logger.Warning("Rate limited on {RouteKey}. Retrying after {RetryAfter:F2}s", routeKey, retryAfter.TotalSeconds);
 
             if (response.Headers.Contains("X-RateLimit-Global"))
@@ -62,13 +89,24 @@ public sealed class RateLimiter
                 Interlocked.Exchange(ref _globalResetAtTicks, newResetTicks);
             }
 
-            await DelayAsync(retryAfter, ct);
+            // The retry delay is intentionally outside the per-bucket gate so a 429 on one bucket
+            // doesn't stall unrelated buckets sharing the limiter.
+            await DelayAsync(retryAfter, ct).ConfigureAwait(false);
             response.Dispose();
 
-            // Retry once
-            await WaitForGlobalAsync(ct);
-            response = await httpClient.SendAsync(requestFactory(), ct);
-            UpdateBucketState(routeKey, response);
+            // Retry once, re-serializing through the gate so the retried request still cooperates
+            // with other in-flight requests to the same bucket.
+            await gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                await WaitForGlobalAsync(ct).ConfigureAwait(false);
+                response = await httpClient.SendAsync(requestFactory(), ct).ConfigureAwait(false);
+                UpdateBucketState(routeKey, response);
+            }
+            finally
+            {
+                gate.Release();
+            }
         }
 
         return response;
@@ -113,6 +151,19 @@ public sealed class RateLimiter
         return $"{method}:{string.Join('/', normalized)}";
     }
 
+    /// <summary>
+    /// Gets the per-bucket serialization gate for a route. Prefers the known bucket id so all
+    /// routes that share a Discord bucket share one gate; falls back to the route key until the
+    /// first response reveals the bucket id. Concurrent first-requests on an unknown route still
+    /// share the route-key gate, so they are serialized too.
+    /// </summary>
+    private SemaphoreSlim GetBucketGate(string routeKey)
+    {
+        var bucketId = _routeToBucket.GetValueOrDefault(routeKey);
+        var gateKey = bucketId is not null ? "bucket:" + bucketId : "route:" + routeKey;
+        return _bucketGates.GetOrAdd(gateKey, static _ => new SemaphoreSlim(1, 1));
+    }
+
     private async Task WaitForBucketAsync(string routeKey, CancellationToken ct)
     {
         var bucketId = _routeToBucket.GetValueOrDefault(routeKey);
@@ -125,20 +176,59 @@ public sealed class RateLimiter
             if (delay > TimeSpan.Zero)
             {
                 _logger.Debug("Waiting {Delay:F2}s for bucket {Bucket} to reset", delay.TotalSeconds, bucketId);
-                await DelayAsync(delay, ct);
+                await DelayAsync(delay, ct).ConfigureAwait(false);
             }
         }
     }
 
     private async Task WaitForGlobalAsync(CancellationToken ct)
     {
+        // Reactive backstop: honor a global reset deadline learned from a 429 X-RateLimit-Global.
         var now = _timeProvider.GetUtcNow();
         var globalResetAt = new DateTimeOffset(Interlocked.Read(ref _globalResetAtTicks), TimeSpan.Zero);
         var delay = globalResetAt - now;
         if (delay > TimeSpan.Zero)
         {
             _logger.Debug("Waiting {Delay:F2}s for global rate limit reset", delay.TotalSeconds);
-            await DelayAsync(delay, ct);
+            await DelayAsync(delay, ct).ConfigureAwait(false);
+        }
+
+        // Proactive limiter: admit up to GlobalRequestsPerSecond per rolling 1-second window.
+        // Only genuine bursts above the cap wait; normal traffic passes through untouched.
+        await WaitForGlobalWindowAsync(ct).ConfigureAwait(false);
+    }
+
+    private async Task WaitForGlobalWindowAsync(CancellationToken ct)
+    {
+        while (true)
+        {
+            TimeSpan waitFor;
+            lock (_globalWindowLock)
+            {
+                var nowTicks = _timeProvider.GetUtcNow().UtcTicks;
+                var windowLengthTicks = TimeSpan.FromSeconds(1).Ticks;
+
+                // Start (or roll over to) the current window.
+                if (_globalWindowStartTicks == 0 || nowTicks - _globalWindowStartTicks >= windowLengthTicks)
+                {
+                    _globalWindowStartTicks = nowTicks;
+                    _globalWindowCount = 0;
+                }
+
+                if (_globalWindowCount < GlobalRequestsPerSecond)
+                {
+                    // Budget available — reserve a slot and proceed without waiting.
+                    _globalWindowCount++;
+                    return;
+                }
+
+                // Budget exhausted for this window: wait until it rolls over, then re-evaluate.
+                var elapsedTicks = nowTicks - _globalWindowStartTicks;
+                waitFor = TimeSpan.FromTicks(Math.Max(windowLengthTicks - elapsedTicks, 1));
+            }
+
+            _logger.Debug("Proactive global limit reached, waiting {Delay:F2}s", waitFor.TotalSeconds);
+            await DelayAsync(waitFor, ct).ConfigureAwait(false);
         }
     }
 
@@ -184,7 +274,7 @@ public sealed class RateLimiter
         // Fall back to the response body
         try
         {
-            var body = await response.Content.ReadAsStringAsync(ct);
+            var body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             using var doc = JsonDocument.Parse(body);
             if (doc.RootElement.TryGetProperty("retry_after", out var retryAfterProp))
             {
@@ -201,7 +291,7 @@ public sealed class RateLimiter
 
     private async Task DelayAsync(TimeSpan delay, CancellationToken ct)
     {
-        await Task.Delay(delay, _timeProvider, ct);
+        await Task.Delay(delay, _timeProvider, ct).ConfigureAwait(false);
     }
 
     private sealed record BucketState(int Remaining, DateTimeOffset ResetsAt);

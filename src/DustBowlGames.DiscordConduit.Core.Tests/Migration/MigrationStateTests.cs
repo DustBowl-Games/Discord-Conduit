@@ -18,7 +18,9 @@ public class MigrationStateTests : IDisposable
             Directory.Delete(_tempDir, recursive: true);
     }
 
-    private static MigrationState CreateState(string migrationId = "src-dst-123456")
+    // Migration IDs must match the path-traversal guard in GetStateFilePath: ^[\d\-a-f]+$
+    // (digits, hyphens, and hex a-f), which is the shape GenerateMigrationId produces.
+    private static MigrationState CreateState(string migrationId = "111-222-123456")
     {
         return new MigrationState
         {
@@ -56,9 +58,9 @@ public class MigrationStateTests : IDisposable
     [Fact]
     public void GetStateFilePath_ProducesCorrectPath()
     {
-        var path = MigrationState.GetStateFilePath("/data/app", "my-migration");
+        var path = MigrationState.GetStateFilePath("/data/app", "abc123-def456");
 
-        Assert.Equal(Path.Combine("/data/app", "migrations", "my-migration", "state.json"), path);
+        Assert.Equal(Path.Combine("/data/app", "migrations", "abc123-def456", "state.json"), path);
     }
 
     // --- SaveAsync / LoadAsync roundtrip ---
@@ -66,18 +68,18 @@ public class MigrationStateTests : IDisposable
     [Fact]
     public async Task SaveAsync_LoadAsync_RoundtripPreservesFields()
     {
-        var state = CreateState("roundtrip-test");
+        var state = CreateState("abcdef-123456");
         state.MessageIdMap["old1"] = "new1";
         state.MessageIdMap["old2"] = "new2";
         state.FailedMessages.Add(new FailedMessage("fail1", "boom", DateTimeOffset.UtcNow));
 
         await state.SaveAsync(_tempDir);
 
-        var filePath = MigrationState.GetStateFilePath(_tempDir, "roundtrip-test");
+        var filePath = MigrationState.GetStateFilePath(_tempDir, "abcdef-123456");
         var loaded = await MigrationState.LoadAsync(filePath);
 
         Assert.NotNull(loaded);
-        Assert.Equal("roundtrip-test", loaded.MigrationId);
+        Assert.Equal("abcdef-123456", loaded.MigrationId);
         Assert.Equal("src", loaded.SourceChannelId);
         Assert.Equal("dst", loaded.DestinationChannelId);
         Assert.Equal("guild1", loaded.GuildId);
@@ -118,8 +120,8 @@ public class MigrationStateTests : IDisposable
     [Fact]
     public async Task LoadAllAsync_WithSavedStates_ReturnsAll()
     {
-        var state1 = CreateState("state-1");
-        var state2 = CreateState("state-2");
+        var state1 = CreateState("5747e1");
+        var state2 = CreateState("5747e2");
 
         await state1.SaveAsync(_tempDir);
         await state2.SaveAsync(_tempDir);
@@ -127,7 +129,7 @@ public class MigrationStateTests : IDisposable
         var results = await MigrationState.LoadAllAsync(_tempDir);
 
         Assert.Equal(2, results.Count);
-        Assert.Contains(results, s => s.MigrationId == "state-1");
-        Assert.Contains(results, s => s.MigrationId == "state-2");
+        Assert.Contains(results, s => s.MigrationId == "5747e1");
+        Assert.Contains(results, s => s.MigrationId == "5747e2");
     }
 }

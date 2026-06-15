@@ -108,8 +108,6 @@ public partial class ChannelBrowserViewModel : ObservableObject
         SelectedDestination = channel;
     }
 
-    public bool CanStartMigration => SelectedSource is not null && SelectedDestination is not null;
-
     private static List<ChannelNodeViewModel> BuildChannelTree(
         List<Channel> channels, List<Channel> threads, string guildId, string guildName)
     {

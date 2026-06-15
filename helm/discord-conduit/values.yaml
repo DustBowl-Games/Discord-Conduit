@@ -1,0 +1,72 @@
+# Default values for the discord-conduit chart.
+
+image:
+  repository: ghcr.io/dustbowl-games/discord-conduit
+  # Image tag. Leave empty to default to the chart's appVersion (see _helpers.tpl).
+  tag: ""
+  pullPolicy: IfNotPresent
+
+# Optional image pull secrets for private registries (e.g. GHCR with a PAT).
+imagePullSecrets: []
+
+# DO NOT CHANGE. The Discord gateway connection is a singleton: two pods would
+# both receive every interaction and double-handle every slash command. This
+# MUST stay 1. The Deployment also uses a Recreate strategy so a rollout never
+# briefly runs two gateway connections at once.
+replicaCount: 1
+
+# Bot token configuration. Provide EITHER an inline value OR reference an
+# existing Secret you manage out-of-band.
+token:
+  # Inline token value. If set (non-empty), the chart renders a Secret
+  # containing it and the Deployment reads from that Secret. Avoid committing a
+  # real token to values.yaml; prefer `--set token.value=...` or an existingSecret.
+  value: ""
+
+  # Reference an existing Secret instead of having the chart create one. When
+  # set, `token.value` is ignored and no Secret is rendered.
+  existingSecret: ""
+  # Key within the (existing or chart-managed) Secret that holds the token.
+  existingSecretKey: token
+
+# Extra environment variables passed through to the container, e.g.
+#   extraEnv:
+#     - name: DOTNET_gcServer
+#       value: "0"
+extraEnv: []
+
+# Resource requests/limits. The bot is lightweight (an idle gateway/REST client),
+# so requests are small; the limit guards against runaway memory.
+resources:
+  requests:
+    cpu: 25m
+    memory: 64Mi
+  limits:
+    cpu: 250m
+    memory: 256Mi
+
+# Pod-level security context — run as a non-root user.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+
+# Container-level security context — drop privileges and lock down the root FS.
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 10001
+  capabilities:
+    drop:
+      - ALL
+
+# Scheduling pass-throughs.
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Optional name overrides.
+nameOverride: ""
+fullnameOverride: ""

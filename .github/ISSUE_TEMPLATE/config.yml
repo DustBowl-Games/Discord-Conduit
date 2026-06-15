@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/DustBowl-Games/Discord-Conduit/security/advisories/new
+    about: Please report security vulnerabilities privately, not as public issues.
+  - name: Setup help
+    url: https://github.com/DustBowl-Games/Discord-Conduit/blob/main/SETUP.md
+    about: Check the Setup Guide before opening an issue.

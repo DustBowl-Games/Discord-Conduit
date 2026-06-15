@@ -9,11 +9,10 @@ using Serilog;
 namespace DustBowlGames.DiscordConduit.Core.Tests.Migration;
 
 /// <summary>
-/// MigrationEngine tests are skipped until FakeHttpHandler is updated to match
-/// query-string URLs (e.g. /webhooks/{id}/{token}?wait=true).
-/// The handler currently hangs when no URL match is found.
+/// End-to-end tests for <see cref="MigrationEngine"/> driven through <see cref="FakeHttpHandler"/>,
+/// which serves multiple registrations for the same route in sequence (so per-message webhook
+/// responses are distinct) and matches query-string URLs by substring.
 /// </summary>
-[System.Diagnostics.CodeAnalysis.SuppressMessage("Usage", "xUnit1004:Test methods should not be skipped")]
 public class MigrationEngineTests : IDisposable
 {
     private readonly ILogger _logger = new LoggerConfiguration().CreateLogger();
@@ -121,7 +120,7 @@ public class MigrationEngineTests : IDisposable
 
     // --- PreviewAsync ---
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching")]
+    [Fact]
     public async Task PreviewAsync_ReturnsCorrectCounts()
     {
         var messages = new[]
@@ -158,7 +157,7 @@ public class MigrationEngineTests : IDisposable
         Assert.Equal(2, preview.Warnings.Count);
     }
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching")]
+    [Fact]
     public async Task PreviewAsync_CountsAllMessageTypes_IncludingSystem()
     {
         // PreviewAsync counts ALL messages (including system) — it does not filter.
@@ -183,7 +182,7 @@ public class MigrationEngineTests : IDisposable
 
     // --- RunAsync ---
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task RunAsync_MigratesMessagesViaWebhookInChronologicalOrder()
     {
         // FetchAllMessagesDescendingAsync returns messages newest-first (like Discord),
@@ -195,8 +194,6 @@ public class MigrationEngineTests : IDisposable
             MakeMessageJson("2", content: "second"),
             MakeMessageJson("1", content: "first"),
         };
-
-        var webhookExecuteCounter = 0;
 
         var handler = new FakeHttpHandler()
             .RespondJson(HttpMethod.Get, "/channels/src-chan/messages", messages)
@@ -229,7 +226,7 @@ public class MigrationEngineTests : IDisposable
         Assert.NotNull(webhookDeleteReq);
     }
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task RunAsync_SkipsSystemMessages()
     {
         var messages = new[]
@@ -253,7 +250,7 @@ public class MigrationEngineTests : IDisposable
         Assert.Equal(0, result.TotalFailed);
     }
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task RunAsync_HandlesEmptySourceChannel()
     {
         var handler = new FakeHttpHandler()
@@ -297,7 +294,7 @@ public class MigrationEngineTests : IDisposable
             () => engine.RunAsync(DefaultOptions(), NoOpProgress(), cts.Token));
     }
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task RunAsync_DryRun_DoesNotCreateWebhookOrPostMessages()
     {
         var messages = new[]
@@ -324,7 +321,7 @@ public class MigrationEngineTests : IDisposable
 
     // --- ResumeAsync ---
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task ResumeAsync_PicksUpFromLastMigratedMessage()
     {
         // Simulate that message "1" was already migrated; messages "2" and "3" remain.
@@ -369,7 +366,7 @@ public class MigrationEngineTests : IDisposable
         Assert.Equal(0, result.TotalFailed);
     }
 
-    [Fact(Skip = "FakeHttpHandler needs query-string-aware URL matching for webhook execute")]
+    [Fact]
     public async Task ResumeAsync_NoLastMessageId_FetchesAllMessages()
     {
         // If LastSuccessfulSourceMessageId is null, the engine fetches all messages from scratch.

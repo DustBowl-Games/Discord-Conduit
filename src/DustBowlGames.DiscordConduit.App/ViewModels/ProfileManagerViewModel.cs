@@ -12,6 +12,11 @@ public partial class ProfileManagerViewModel : ObservableObject
     private readonly AppServices _services;
     private readonly Action<bool> _onConnectionChanged;
 
+    // Tracks the name of the profile that is actually connected, so we can decide
+    // whether removing a profile should trigger a disconnect. ConnectedBotName holds
+    // the bot's Discord display name, not the profile name.
+    private string? _connectedProfileName;
+
     [ObservableProperty]
     private ObservableCollection<ProfileItemViewModel> _profiles = [];
 
@@ -95,11 +100,12 @@ public partial class ProfileManagerViewModel : ObservableObject
             await _services.ProfileManager.RemoveProfileAsync(SelectedProfile.Name);
             Profiles.Remove(SelectedProfile);
 
-            if (IsConnected && ConnectedBotName?.Contains(SelectedProfile.Name) == true)
+            if (IsConnected && string.Equals(_connectedProfileName, SelectedProfile.Name, StringComparison.Ordinal))
             {
                 await _services.DisconnectAsync();
                 IsConnected = false;
                 ConnectedBotName = null;
+                _connectedProfileName = null;
                 _onConnectionChanged(false);
             }
 
@@ -115,13 +121,17 @@ public partial class ProfileManagerViewModel : ObservableObject
     private async Task ConnectAsync()
     {
         if (SelectedProfile is null) return;
+        if (IsLoading) return;
+
+        // Capture the profile name up front so it can't change mid-connect.
+        var profileName = SelectedProfile.Name;
 
         IsLoading = true;
         ErrorMessage = null;
 
         try
         {
-            var token = await _services.ProfileManager.GetTokenAsync(SelectedProfile.Name);
+            var token = await _services.ProfileManager.GetTokenAsync(profileName);
             if (string.IsNullOrEmpty(token))
             {
                 ErrorMessage = "Token not found for this profile. Try re-adding it.";
@@ -133,6 +143,7 @@ public partial class ProfileManagerViewModel : ObservableObject
             // Verify connection by calling GET /users/@me
             var botUser = await _services.RestClient!.GetAsync<User>("/users/@me");
             IsConnected = true;
+            _connectedProfileName = profileName;
             var botStatus = _services.IsBotRunning ? " (bot running)" : "";
             ConnectedBotName = $"Connected as {botUser.DisplayName}{botStatus}";
             _onConnectionChanged(true);
@@ -145,6 +156,7 @@ public partial class ProfileManagerViewModel : ObservableObject
             await _services.DisconnectAsync();
             IsConnected = false;
             ConnectedBotName = null;
+            _connectedProfileName = null;
             _onConnectionChanged(false);
             ErrorMessage = $"Connection failed: {ex.Message}";
             Log.Logger.Error(ex, "Failed to connect to Discord");

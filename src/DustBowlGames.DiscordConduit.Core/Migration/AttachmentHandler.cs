@@ -50,11 +50,48 @@ public sealed class AttachmentHandler
             throw new InvalidOperationException($"Attachment URL is not from a Discord CDN host: {uri.Host}");
         }
 
-        var response = await _httpClient.GetAsync(attachment.Url, ct);
+        // Hard cap on actual downloaded bytes, independent of the self-reported attachment.Size.
+        // A small margin above the upload limit is allowed so files right at the boundary still download.
+        const long maxDownloadBytes = Attachment.MaxBotUploadSize + (1024 * 1024);
+
+        using var response = await _httpClient.GetAsync(
+            attachment.Url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        var data = await response.Content.ReadAsByteArrayAsync(ct);
+        // Reject early if the server advertises a body larger than the cap.
+        var contentLength = response.Content.Headers.ContentLength;
+        if (contentLength is > maxDownloadBytes)
+        {
+            throw new InvalidOperationException(
+                $"Attachment {attachment.Filename} reports Content-Length {contentLength} bytes, " +
+                $"which exceeds the maximum download size of {maxDownloadBytes} bytes.");
+        }
+
         var contentType = attachment.ContentType ?? response.Content.Headers.ContentType?.MediaType;
+
+        // Stream the body in chunks, enforcing the cap on the running total so a server that
+        // lies about (or omits) Content-Length still cannot exhaust memory.
+        await using var stream = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        using var buffer = new MemoryStream(
+            contentLength is > 0 and <= maxDownloadBytes ? (int)contentLength.Value : 0);
+
+        var chunk = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = await stream.ReadAsync(chunk.AsMemory(0, chunk.Length), ct).ConfigureAwait(false)) > 0)
+        {
+            total += read;
+            if (total > maxDownloadBytes)
+            {
+                throw new InvalidOperationException(
+                    $"Attachment {attachment.Filename} exceeds the maximum download size of " +
+                    $"{maxDownloadBytes} bytes; download aborted.");
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        var data = buffer.ToArray();
 
         _logger.Debug("Downloaded attachment {Filename}: {Bytes} bytes", attachment.Filename, data.Length);
 
@@ -62,7 +99,7 @@ public sealed class AttachmentHandler
     }
 
     /// <summary>
-    /// Checks whether an attachment exceeds the 8 MB bot upload size limit.
+    /// Checks whether an attachment exceeds the 25 MB bot upload size limit.
     /// </summary>
     /// <param name="attachment">The attachment to check.</param>
     /// <returns><c>true</c> if the attachment is too large to re-upload; otherwise <c>false</c>.</returns>

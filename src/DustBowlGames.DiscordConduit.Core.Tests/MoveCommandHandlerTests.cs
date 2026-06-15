@@ -78,6 +78,7 @@ public class MoveCommandHandlerTests : IDisposable
 
     public void Dispose()
     {
+        _stateStore.Dispose();
         _restClient.Dispose();
     }
 
@@ -214,6 +215,7 @@ public class MoveCommandHandlerTests : IDisposable
         // Pre-create a session (as if Move This was already invoked)
         _stateStore.Set(SessionKey, new InteractionSession
         {
+            SessionId = "sess-1",
             UserId = UserId,
             GuildId = GuildId,
             SourceChannelId = ChannelId,
@@ -221,7 +223,7 @@ public class MoveCommandHandlerTests : IDisposable
             MessageCount = 1
         });
 
-        var interaction = CreateComponentInteraction("move_action", values: ["channel"]);
+        var interaction = CreateComponentInteraction("move_action:sess-1", values: ["channel"]);
 
         await _sut.HandleComponentAsync(interaction);
 
@@ -240,6 +242,7 @@ public class MoveCommandHandlerTests : IDisposable
         // Pre-create a session
         _stateStore.Set(SessionKey, new InteractionSession
         {
+            SessionId = "sess-1",
             UserId = UserId,
             GuildId = GuildId,
             SourceChannelId = ChannelId,
@@ -249,7 +252,7 @@ public class MoveCommandHandlerTests : IDisposable
             DestinationId = "dest-300"
         });
 
-        var interaction = CreateComponentInteraction("move_no");
+        var interaction = CreateComponentInteraction("move_no:sess-1");
 
         await _sut.HandleComponentAsync(interaction);
 
@@ -296,8 +299,11 @@ public class MoveCommandHandlerTests : IDisposable
         Assert.Null(session.Action);
         Assert.Null(session.DestinationId);
 
-        // Step 2: Select action — updates session.Action
-        var actionInteraction = CreateComponentInteraction("move_action", values: ["as_thread"]);
+        // Step 2: Select action — updates session.Action. The session's per-flow
+        // nonce is generated during command handling, so read it back and embed it
+        // in the component custom_ids the way the real UI does.
+        var sessionId = session.SessionId;
+        var actionInteraction = CreateComponentInteraction($"move_action:{sessionId}", values: ["as_thread"]);
         await _sut.HandleComponentAsync(actionInteraction);
 
         session = _stateStore.Get(SessionKey);
@@ -305,7 +311,7 @@ public class MoveCommandHandlerTests : IDisposable
         Assert.Equal("as_thread", session.Action);
 
         // Step 3: Cancel — cleans up session
-        var cancelInteraction = CreateComponentInteraction("move_no");
+        var cancelInteraction = CreateComponentInteraction($"move_no:{sessionId}");
         await _sut.HandleComponentAsync(cancelInteraction);
 
         session = _stateStore.Get(SessionKey);
@@ -383,6 +389,7 @@ public class MoveCommandHandlerTests : IDisposable
     {
         _stateStore.Set(SessionKey, new InteractionSession
         {
+            SessionId = "sess-1",
             UserId = UserId,
             GuildId = GuildId,
             SourceChannelId = ChannelId,
@@ -390,15 +397,10 @@ public class MoveCommandHandlerTests : IDisposable
             MessageCount = 1,
             Action = "channel",
             DestinationId = "dest-300",
-            MovedMessages = [new Message
-            {
-                Id = "m1", ChannelId = ChannelId,
-                Author = new User { Id = "u1", Username = "a" },
-                Content = "hi", Timestamp = "2024-01-01T00:00:00Z", Type = 0
-            }]
+            MovedMessageIds = ["m1"]
         });
 
-        var interaction = CreateComponentInteraction("move_keep");
+        var interaction = CreateComponentInteraction("move_keep:sess-1");
 
         await _sut.HandleComponentAsync(interaction);
 

@@ -83,7 +83,9 @@ public sealed class MigrationState
     /// <returns>The full path to the state JSON file.</returns>
     public static string GetStateFilePath(string appDataPath, string migrationId)
     {
-        if (!System.Text.RegularExpressions.Regex.IsMatch(migrationId, @"^[\d\-a-f]+$"))
+        // Path-traversal guard: the migration ID becomes a directory name, so only allow safe
+        // filename-segment characters (letters, digits, hyphen, underscore) — no '.', '/' or '\'.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(migrationId, @"^[A-Za-z0-9_-]+$"))
             throw new ArgumentException($"Invalid migration ID format: {migrationId}", nameof(migrationId));
         return Path.Combine(appDataPath, "migrations", migrationId, "state.json");
     }
@@ -115,7 +117,7 @@ public sealed class MigrationState
         // Atomic write: write to temp file then rename, so a crash never leaves a partial file
         var tempPath = filePath + ".tmp";
         var json = JsonSerializer.Serialize(this, JsonOptions);
-        await File.WriteAllTextAsync(tempPath, json);
+        await File.WriteAllTextAsync(tempPath, json).ConfigureAwait(false);
         File.Move(tempPath, filePath, overwrite: true);
     }
 
@@ -129,7 +131,7 @@ public sealed class MigrationState
         if (!File.Exists(filePath))
             return null;
 
-        var json = await File.ReadAllTextAsync(filePath);
+        var json = await File.ReadAllTextAsync(filePath).ConfigureAwait(false);
         return JsonSerializer.Deserialize<MigrationState>(json, JsonOptions);
     }
 
@@ -150,7 +152,7 @@ public sealed class MigrationState
         foreach (var dir in Directory.GetDirectories(migrationsDir))
         {
             var stateFile = Path.Combine(dir, "state.json");
-            var state = await LoadAsync(stateFile);
+            var state = await LoadAsync(stateFile).ConfigureAwait(false);
             if (state is not null)
                 states.Add(state);
         }
@@ -158,7 +160,7 @@ public sealed class MigrationState
         // Also load legacy flat files: migrations/{id}.json
         foreach (var file in Directory.GetFiles(migrationsDir, "*.json"))
         {
-            var state = await LoadAsync(file);
+            var state = await LoadAsync(file).ConfigureAwait(false);
             if (state is not null)
                 states.Add(state);
         }

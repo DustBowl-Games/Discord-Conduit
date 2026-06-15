@@ -11,6 +11,7 @@ public partial class MigrationProgressViewModel : ObservableObject
     private readonly AppServices _services;
     private readonly Func<MigrationOptions?> _getOptions;
     private CancellationTokenSource? _cts;
+    private PauseTokenSource? _pauseSource;
 
     [ObservableProperty]
     private int _completed;
@@ -89,11 +90,24 @@ public partial class MigrationProgressViewModel : ObservableObject
     private void TogglePause()
     {
         IsPaused = !IsPaused;
+
+        if (IsPaused)
+        {
+            _pauseSource?.Pause();
+        }
+        else
+        {
+            _pauseSource?.Resume();
+        }
     }
 
     [RelayCommand]
     private async Task StartMigrationAsync()
     {
+        // Re-entrancy guard: prevent a second start from overwriting _cts/_pauseSource
+        // and launching a concurrent migration run.
+        if (IsRunning) return;
+
         var options = _getOptions();
         if (options is null)
         {
@@ -108,7 +122,9 @@ public partial class MigrationProgressViewModel : ObservableObject
         }
 
         _cts = new CancellationTokenSource();
+        _pauseSource = new PauseTokenSource();
         IsRunning = true;
+        IsPaused = false;
         IsComplete = false;
         ErrorMessage = null;
         Phase = "Starting...";
@@ -117,7 +133,7 @@ public partial class MigrationProgressViewModel : ObservableObject
 
         try
         {
-            Result = await _services.Migration.RunAsync(options, progress, _cts.Token);
+            Result = await _services.Migration.RunAsync(options, progress, _cts.Token, _pauseSource.Token);
             IsComplete = true;
             Phase = "Complete";
             SummaryText = $"Migrated {Result.TotalMigrated} messages, {Result.TotalFailed} failed, {Result.TotalSkipped} skipped in {Result.Duration:hh\\:mm\\:ss}";
@@ -136,7 +152,12 @@ public partial class MigrationProgressViewModel : ObservableObject
         finally
         {
             IsRunning = false;
+            IsPaused = false;
+            _pauseSource = null;
+
+            var cts = _cts;
             _cts = null;
+            cts?.Dispose();
         }
     }
 }

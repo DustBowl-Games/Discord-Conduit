@@ -64,7 +64,7 @@ public sealed class MigrationEngine
     {
         _logger.Information("Starting migration preview for channel {SourceChannelId}", options.SourceChannelId);
 
-        var allMessages = await FetchAllMessagesDescendingAsync(options.SourceChannelId, ct);
+        var allMessages = await FetchAllMessagesDescendingAsync(options.SourceChannelId, ct).ConfigureAwait(false);
 
         var messageCount = allMessages.Count;
         var attachmentCount = 0;
@@ -109,7 +109,7 @@ public sealed class MigrationEngine
 
         if (oversizedAttachments.Count > 0)
         {
-            warnings.Add($"{oversizedAttachments.Count} attachment(s) exceed the 8 MB bot upload limit and will be skipped.");
+            warnings.Add($"{oversizedAttachments.Count} attachment(s) exceed the 25 MB bot upload limit and will be skipped.");
         }
 
         if (stickerMessageCount > 0)
@@ -145,11 +145,16 @@ public sealed class MigrationEngine
     /// <param name="options">The migration options.</param>
     /// <param name="progress">Progress reporter for UI updates.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="pauseToken">
+    /// An optional pause token. When its source is paused, the migration suspends at the start of
+    /// each per-message iteration and resumes when the source is resumed. A default token never pauses.
+    /// </param>
     /// <returns>A <see cref="MigrationResult"/> describing the outcome of the migration.</returns>
     public async Task<MigrationResult> RunAsync(
         MigrationOptions options,
         IProgress<MigrationProgress> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        PauseToken pauseToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
 
@@ -166,7 +171,7 @@ public sealed class MigrationEngine
         else
         {
             webhook = await _webhookEndpoints.CreateWebhookAsync(
-                options.DestinationChannelId, "Conduit Migration", ct);
+                options.DestinationChannelId, "Conduit Migration", ct).ConfigureAwait(false);
 
             if (string.IsNullOrEmpty(webhook.Token))
             {
@@ -195,7 +200,7 @@ public sealed class MigrationEngine
         };
 
         // Create per-migration log file
-        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[A-Za-z0-9_-]+$"))
             throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
         var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
@@ -216,19 +221,19 @@ public sealed class MigrationEngine
         try
         {
             // Fetch all messages and process in chronological order
-            var allMessages = await FetchAllMessagesChronologicalAsync(options.SourceChannelId, ct);
+            var allMessages = await FetchAllMessagesChronologicalAsync(options.SourceChannelId, ct).ConfigureAwait(false);
             state.TotalMessageCount = allMessages.Count;
 
-            await state.SaveAsync(_appDataPath);
+            await state.SaveAsync(_appDataPath).ConfigureAwait(false);
 
-            var result = await MigrateMessagesAsync(state, allMessages, webhook, stopwatch, progress, migrationLogger, ct);
+            var result = await MigrateMessagesAsync(state, allMessages, webhook, stopwatch, progress, migrationLogger, ct, pauseToken: pauseToken).ConfigureAwait(false);
 
             // Clean up webhook if not a dry run
             if (!options.DryRun)
             {
                 try
                 {
-                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
+                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct).ConfigureAwait(false);
                     _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
                 }
                 catch (Exception ex)
@@ -242,7 +247,7 @@ public sealed class MigrationEngine
                 result.TotalMigrated, result.TotalFailed, result.TotalSkipped, result.Duration);
 
             // Write report.json
-            await WriteReportAsync(state, result, status);
+            await WriteReportAsync(state, result, status).ConfigureAwait(false);
 
             return result;
         }
@@ -270,11 +275,16 @@ public sealed class MigrationEngine
     /// <param name="state">The saved migration state to resume from.</param>
     /// <param name="progress">Progress reporter for UI updates.</param>
     /// <param name="ct">Cancellation token.</param>
+    /// <param name="pauseToken">
+    /// An optional pause token. When its source is paused, the migration suspends at the start of
+    /// each per-message iteration and resumes when the source is resumed. A default token never pauses.
+    /// </param>
     /// <returns>A <see cref="MigrationResult"/> describing the outcome of the migration.</returns>
     public async Task<MigrationResult> ResumeAsync(
         MigrationState state,
         IProgress<MigrationProgress> progress,
-        CancellationToken ct)
+        CancellationToken ct,
+        PauseToken pauseToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
 
@@ -282,7 +292,7 @@ public sealed class MigrationEngine
             state.MigrationId, state.LastSuccessfulSourceMessageId);
 
         // Create per-migration log file (append to existing if resuming)
-        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+        if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[A-Za-z0-9_-]+$"))
             throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
         var migrationLogPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "migration.log");
         Directory.CreateDirectory(Path.GetDirectoryName(migrationLogPath)!);
@@ -299,18 +309,18 @@ public sealed class MigrationEngine
         try
         {
             // Verify the webhook still exists; if not, create a new one
-            var webhook = await EnsureWebhookAsync(state, ct);
+            var webhook = await EnsureWebhookAsync(state, ct).ConfigureAwait(false);
 
             // Fetch remaining messages after the last successful one
             List<Message> remainingMessages;
             if (state.LastSuccessfulSourceMessageId is not null)
             {
                 remainingMessages = await FetchMessagesAfterAsync(
-                    state.SourceChannelId, state.LastSuccessfulSourceMessageId, ct);
+                    state.SourceChannelId, state.LastSuccessfulSourceMessageId, ct).ConfigureAwait(false);
             }
             else
             {
-                remainingMessages = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
+                remainingMessages = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct).ConfigureAwait(false);
             }
 
             state.TotalMessageCount = state.MigratedCount + remainingMessages.Count;
@@ -321,17 +331,17 @@ public sealed class MigrationEngine
             List<Message>? allMessagesForReactions = null;
             if (state.Options.IncludeReactions && !state.Options.DryRun)
             {
-                allMessagesForReactions = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct);
+                allMessagesForReactions = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct).ConfigureAwait(false);
             }
 
-            var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, migrationLogger, ct, allMessagesForReactions);
+            var result = await MigrateMessagesAsync(state, remainingMessages, webhook, stopwatch, progress, migrationLogger, ct, allMessagesForReactions, pauseToken).ConfigureAwait(false);
 
             // Clean up webhook if not a dry run
             if (!state.Options.DryRun)
             {
                 try
                 {
-                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct);
+                    await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct).ConfigureAwait(false);
                     _logger.Information("Deleted migration webhook {WebhookId}", webhook.Id);
                 }
                 catch (Exception ex)
@@ -345,7 +355,7 @@ public sealed class MigrationEngine
                 result.TotalMigrated, result.TotalFailed, result.TotalSkipped, result.Duration);
 
             // Write report.json
-            await WriteReportAsync(state, result, status);
+            await WriteReportAsync(state, result, status).ConfigureAwait(false);
 
             return result;
         }
@@ -378,13 +388,15 @@ public sealed class MigrationEngine
         IProgress<MigrationProgress> progress,
         ILogger migrationLogger,
         CancellationToken ct,
-        List<Message>? allMessagesForReactions = null)
+        List<Message>? allMessagesForReactions = null,
+        PauseToken pauseToken = default)
     {
         var skipped = 0;
 
         foreach (var message in messages)
         {
             ct.ThrowIfCancellationRequested();
+            await pauseToken.WaitWhilePausedAsync(ct).ConfigureAwait(false);
 
             // Skip if already migrated (resume case)
             if (state.MessageIdMap.ContainsKey(message.Id))
@@ -403,7 +415,12 @@ public sealed class MigrationEngine
 
             try
             {
-                await MigrateSingleMessageAsync(state, message, webhook, migrationLogger, ct);
+                await MigrateSingleMessageAsync(state, message, webhook, migrationLogger, ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                // User cancellation must stop the migration, not be recorded as a failed message.
+                throw;
             }
             catch (Exception ex)
             {
@@ -423,15 +440,15 @@ public sealed class MigrationEngine
         if (state.Options.IncludeReactions && !state.Options.DryRun)
         {
             state.Phase = MigrationPhase.MigratingReactions;
-            await state.SaveAsync(_appDataPath);
+            await state.SaveAsync(_appDataPath).ConfigureAwait(false);
             ReportProgress(state, skipped, stopwatch.Elapsed, progress);
 
-            await MigrateReactionsAsync(state, allMessagesForReactions ?? messages, ct);
+            await MigrateReactionsAsync(state, allMessagesForReactions ?? messages, ct).ConfigureAwait(false);
         }
 
         // Finalize
         state.Phase = MigrationPhase.Complete;
-        await state.SaveAsync(_appDataPath);
+        await state.SaveAsync(_appDataPath).ConfigureAwait(false);
 
         stopwatch.Stop();
 
@@ -508,6 +525,25 @@ public sealed class MigrationEngine
             return;
         }
 
+        // A webhook payload with no text, no uploadable files, and no rich embeds is rejected by
+        // Discord with a 400. Skip such messages rather than failing the whole send.
+        if (string.IsNullOrWhiteSpace(content)
+            && uploadableAttachments.Count == 0
+            && richEmbeds is not { Count: > 0 })
+        {
+            _logger.Warning(
+                "Skipping message {MessageId}: no migratable content (empty text, no uploadable attachments, no rich embeds)",
+                message.Id);
+            migrationLogger.Warning(
+                "Skipping message {MessageId}: no migratable content (empty text, no uploadable attachments, no rich embeds)",
+                message.Id);
+            state.FailedMessages.Add(new FailedMessage(
+                message.Id,
+                "No migratable content (empty text, no uploadable attachments, no rich embeds).",
+                DateTimeOffset.UtcNow));
+            return;
+        }
+
         Message repostedMessage;
 
         if (uploadableAttachments.Count > 0)
@@ -516,14 +552,14 @@ public sealed class MigrationEngine
             var files = new List<(byte[] Data, string Filename, string? ContentType)>();
             foreach (var attachment in uploadableAttachments)
             {
-                var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, ct);
+                var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, ct).ConfigureAwait(false);
                 files.Add(downloaded);
             }
 
             repostedMessage = await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                 webhook.Id, webhook.Token!,
                 () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
-                ct);
+                ct).ConfigureAwait(false);
         }
         else
         {
@@ -537,7 +573,7 @@ public sealed class MigrationEngine
             };
 
             repostedMessage = await _webhookEndpoints.ExecuteWebhookAsync(
-                webhook.Id, webhook.Token!, payload, ct);
+                webhook.Id, webhook.Token!, payload, ct).ConfigureAwait(false);
         }
 
         // Update state
@@ -546,7 +582,7 @@ public sealed class MigrationEngine
         state.LastSuccessfulSourceMessageId = message.Id;
 
         // Save state after every successful message for maximum resume safety
-        await state.SaveAsync(_appDataPath);
+        await state.SaveAsync(_appDataPath).ConfigureAwait(false);
 
         _logger.Debug("Migrated message {SourceId} -> {DestId}",
             message.Id, repostedMessage.Id);
@@ -582,10 +618,15 @@ public sealed class MigrationEngine
                         state.DestinationChannelId,
                         repostedMessageId,
                         reaction.Emoji.ApiIdentifier,
-                        ct);
+                        ct).ConfigureAwait(false);
 
                     _logger.Debug("Added reaction {Emoji} to message {MessageId}",
                         reaction.Emoji.ApiIdentifier, repostedMessageId);
+                }
+                catch (OperationCanceledException)
+                {
+                    // User cancellation must stop the reaction pass promptly, not be swallowed.
+                    throw;
                 }
                 catch (Exception ex)
                 {
@@ -610,7 +651,7 @@ public sealed class MigrationEngine
         {
             ct.ThrowIfCancellationRequested();
 
-            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, before: beforeId, ct: ct);
+            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, before: beforeId, ct: ct).ConfigureAwait(false);
 
             if (batch.Count == 0)
                 break;
@@ -633,7 +674,7 @@ public sealed class MigrationEngine
     /// </summary>
     private async Task<List<Message>> FetchAllMessagesChronologicalAsync(string channelId, CancellationToken ct)
     {
-        var allMessages = await FetchAllMessagesDescendingAsync(channelId, ct);
+        var allMessages = await FetchAllMessagesDescendingAsync(channelId, ct).ConfigureAwait(false);
         allMessages.Reverse();
         return allMessages;
     }
@@ -651,7 +692,7 @@ public sealed class MigrationEngine
         {
             ct.ThrowIfCancellationRequested();
 
-            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, after: afterId, ct: ct);
+            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, after: afterId, ct: ct).ConfigureAwait(false);
 
             if (batch.Count == 0)
                 break;
@@ -684,7 +725,7 @@ public sealed class MigrationEngine
         try
         {
             // Fetch the webhook by ID to get its token (token is not persisted to disk for security)
-            var webhook = await _webhookEndpoints.GetWebhookAsync(state.WebhookId, ct);
+            var webhook = await _webhookEndpoints.GetWebhookAsync(state.WebhookId, ct).ConfigureAwait(false);
             state.WebhookToken = webhook.Token ?? string.Empty;
             _logger.Debug("Verified existing webhook {WebhookId}", webhook.Id);
             return webhook;
@@ -694,11 +735,11 @@ public sealed class MigrationEngine
             _logger.Warning(ex, "Webhook {WebhookId} no longer exists, creating a new one", state.WebhookId);
 
             var webhook = await _webhookEndpoints.CreateWebhookAsync(
-                state.DestinationChannelId, "Conduit Migration", ct);
+                state.DestinationChannelId, "Conduit Migration", ct).ConfigureAwait(false);
 
             state.WebhookId = webhook.Id;
             state.WebhookToken = webhook.Token ?? string.Empty;
-            await state.SaveAsync(_appDataPath);
+            await state.SaveAsync(_appDataPath).ConfigureAwait(false);
 
             _logger.Information("Created new webhook {WebhookId} for resumed migration", webhook.Id);
             return webhook;
@@ -776,10 +817,10 @@ public sealed class MigrationEngine
                 })
             };
 
-            if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[\d\-a-f]+$"))
+            if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[A-Za-z0-9_-]+$"))
                 throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
             var reportPath = Path.Combine(_appDataPath, "migrations", state.MigrationId, "report.json");
-            await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, CoreJsonOptions.Default));
+            await File.WriteAllTextAsync(reportPath, JsonSerializer.Serialize(report, CoreJsonOptions.Default)).ConfigureAwait(false);
             _logger.Debug("Wrote migration report to {ReportPath}", reportPath);
         }
         catch (Exception ex)

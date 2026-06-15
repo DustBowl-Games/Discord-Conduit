@@ -38,7 +38,7 @@ public sealed class ChannelEndpoints
     /// <returns>A list of active thread channels.</returns>
     public async Task<List<Channel>> GetActiveThreadsAsync(string guildId, CancellationToken ct = default)
     {
-        var response = await _client.GetAsync<ActiveThreadsResponse>($"/guilds/{guildId}/threads/active", ct);
+        var response = await _client.GetAsync<ActiveThreadsResponse>($"/guilds/{guildId}/threads/active", ct).ConfigureAwait(false);
         return response.Threads;
     }
 

@@ -15,7 +15,7 @@ namespace DustBowlGames.DiscordConduit.App.Services;
 /// Created once at app startup, provides credential store and profile manager.
 /// Discord-specific services are created when a bot profile connects.
 /// </summary>
-public sealed class AppServices : IDisposable
+public sealed class AppServices : IDisposable, IAsyncDisposable
 {
     public ICredentialStore CredentialStore { get; }
     public ProfileManager ProfileManager { get; }
@@ -153,8 +153,26 @@ public sealed class AppServices : IDisposable
         Validator = null;
     }
 
+    /// <summary>
+    /// Asynchronously disposes the service container, awaiting a clean disconnect.
+    /// Preferred over <see cref="Dispose"/> because it does not block a thread.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await DisconnectAsync();
+    }
+
+    /// <summary>
+    /// Synchronously disposes the service container.
+    /// </summary>
+    /// <remarks>
+    /// Offloads the async disconnect onto a thread-pool thread via <see cref="Task.Run"/>
+    /// so the awaited continuations do not capture and then block on the UI
+    /// <see cref="System.Threading.SynchronizationContext"/>, which would deadlock on app exit.
+    /// Prefer <see cref="DisposeAsync"/> where the caller can await.
+    /// </remarks>
     public void Dispose()
     {
-        DisconnectAsync().GetAwaiter().GetResult();
+        Task.Run(async () => await DisconnectAsync()).GetAwaiter().GetResult();
     }
 }

@@ -45,8 +45,8 @@ public sealed class PermissionValidator
         _logger.Information("Validating bot permissions for migration from {Source} to {Destination} in guild {Guild}",
             sourceChannelId, destinationChannelId, guildId);
 
-        await CheckSourceChannelAsync(sourceChannelId, issues, ct);
-        await CheckDestinationChannelAsync(destinationChannelId, issues, ct);
+        await CheckSourceChannelAsync(sourceChannelId, issues, ct).ConfigureAwait(false);
+        await CheckDestinationChannelAsync(destinationChannelId, issues, ct).ConfigureAwait(false);
 
         var result = new PermissionCheckResult(issues.Count == 0, issues);
 
@@ -68,7 +68,7 @@ public sealed class PermissionValidator
         // Probe READ_MESSAGE_HISTORY by fetching a single message
         try
         {
-            await _client.GetAsync<List<Message>>($"/channels/{channelId}/messages?limit=1", ct);
+            await _client.GetAsync<List<Message>>($"/channels/{channelId}/messages?limit=1", ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
         {
@@ -85,7 +85,7 @@ public sealed class PermissionValidator
         // Verify the channel is accessible
         try
         {
-            await _client.GetAsync<Channel>($"/channels/{channelId}", ct);
+            await _client.GetAsync<Channel>($"/channels/{channelId}", ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
         {
@@ -106,7 +106,7 @@ public sealed class PermissionValidator
             testWebhook = await _client.PostJsonAsync<Webhook>(
                 $"/channels/{channelId}/webhooks",
                 new { name = "conduit-permission-check" },
-                ct);
+                ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == HttpStatusCode.Forbidden)
         {
@@ -125,13 +125,13 @@ public sealed class PermissionValidator
                 var testMessage = await _client.PostJsonAsync<Message>(
                     $"/webhooks/{testWebhook.Id}/{testWebhook.Token}?wait=true",
                     new { content = "\u200b" }, // zero-width space — minimal footprint
-                    ct);
+                    ct).ConfigureAwait(false);
 
                 // Delete the test message immediately
                 try
                 {
                     await _client.DeleteAsync(
-                        $"/webhooks/{testWebhook.Id}/{testWebhook.Token}/messages/{testMessage.Id}", ct);
+                        $"/webhooks/{testWebhook.Id}/{testWebhook.Token}/messages/{testMessage.Id}", ct).ConfigureAwait(false);
                 }
                 catch (Exception ex)
                 {
@@ -150,7 +150,7 @@ public sealed class PermissionValidator
             // Clean up the test webhook
             try
             {
-                await _client.DeleteAsync($"/webhooks/{testWebhook.Id}", ct);
+                await _client.DeleteAsync($"/webhooks/{testWebhook.Id}", ct).ConfigureAwait(false);
             }
             catch (Exception ex)
             {

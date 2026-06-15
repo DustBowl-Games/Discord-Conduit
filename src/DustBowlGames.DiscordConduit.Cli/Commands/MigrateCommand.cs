@@ -38,7 +38,7 @@ internal static class MigrateCommand
             var noReactions = result.GetValue(noReactionsOption);
 
             var token = await ResolveTokenAsync(profileName, appDataPath);
-            if (token is null) return;
+            if (token is null) return 1;
 
             var logger = Log.Logger;
 
@@ -120,7 +120,11 @@ internal static class MigrateCommand
                 {
                     Console.WriteLine($"  - {failed.SourceMessageId}: {failed.Reason}");
                 }
+
+                return 1;
             }
+
+            return 0;
         });
 
         // Resume subcommand
@@ -138,11 +142,11 @@ internal static class MigrateCommand
             if (state is null)
             {
                 Console.Error.WriteLine($"Could not load migration state from '{stateFile}'.");
-                return;
+                return 1;
             }
 
             var token = await ResolveTokenAsync(profileName, appDataPath);
-            if (token is null) return;
+            if (token is null) return 1;
 
             var logger = Log.Logger;
 
@@ -195,7 +199,11 @@ internal static class MigrateCommand
                 {
                     Console.WriteLine($"  - {failed.SourceMessageId}: {failed.Reason}");
                 }
+
+                return 1;
             }
+
+            return 0;
         });
 
         command.Subcommands.Add(resumeCommand);

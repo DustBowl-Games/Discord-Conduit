@@ -35,10 +35,16 @@ public class RateLimiterTests
         var client = new HttpClient(handler) { BaseAddress = new Uri("https://discord.com/api/v10") };
         var limiter = new RateLimiter(_logger, _time);
 
-        var response = await limiter.ExecuteAsync(
+        // Start the request without awaiting so we can advance the fake clock past the
+        // retry-after delay (Task.Delay runs on the injected TimeProvider).
+        var task = limiter.ExecuteAsync(
             client,
             "GET:/channels/123",
             () => new HttpRequestMessage(HttpMethod.Get, "/channels/123"));
+
+        // Advance past the 1s retry-after so the retry fires.
+        _time.Advance(TimeSpan.FromSeconds(2));
+        var response = await task;
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal(2, handler.SentRequests.Count);

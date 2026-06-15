@@ -1,0 +1,22 @@
+# Discord Conduit — bot service.
+#
+# IMPORTANT: run EXACTLY ONE instance of this service. The Discord gateway
+# connection is a singleton — two running bots would both receive every
+# interaction and double-handle (and double-execute) every slash command.
+# Do not scale this service above 1 replica.
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ghcr.io/dustbowl-games/discord-conduit:latest
+    container_name: discord-conduit-bot
+    # Token is read from the DISCORD_CONDUIT_TOKEN env var. Provide it via a
+    # local .env file (copy .env.example -> .env and fill it in). The .env file
+    # is loaded automatically by Docker Compose.
+    env_file:
+      - .env
+    # Default command (`bot start`) is baked into the image; it reads the token
+    # from DISCORD_CONDUIT_TOKEN. No --profile is needed in a container.
+    restart: unless-stopped
