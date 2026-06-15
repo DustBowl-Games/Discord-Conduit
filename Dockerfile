@@ -60,10 +60,11 @@ RUN useradd --create-home --home-dir ${HOME} --shell /usr/sbin/nologin --uid 100
 WORKDIR /app
 COPY --from=build --chown=conduit:conduit /app/publish ./
 
-# Documentation only: the token is supplied at run time via this env var or a
-# mounted file (`--token-file`). Empty by default so an unconfigured container
-# fails fast with a clear error instead of using a stale value.
-ENV DISCORD_CONDUIT_TOKEN=""
+# The bot token is supplied at run time — NOT baked into the image — via the
+# DISCORD_CONDUIT_TOKEN environment variable (`docker run -e ...` / a k8s Secret)
+# or a mounted file passed with `--token-file`. An unconfigured container fails
+# fast with a clear error. We deliberately do not declare the token as an ENV
+# here (that would flag it as a baked-in secret and provides no benefit).
 
 USER conduit
 
