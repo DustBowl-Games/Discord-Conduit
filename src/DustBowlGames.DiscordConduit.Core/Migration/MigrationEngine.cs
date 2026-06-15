@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Text.Json;
+using DustBowlGames.DiscordConduit.Core.Api;
 using DustBowlGames.DiscordConduit.Core.Api.Endpoints;
 using DustBowlGames.DiscordConduit.Core.Api.Models;
 using DustBowlGames.DiscordConduit.Core.Json;
@@ -291,6 +292,24 @@ public sealed class MigrationEngine
         _logger.Information("Resuming migration {MigrationId} from message {LastMessageId}",
             state.MigrationId, state.LastSuccessfulSourceMessageId);
 
+        // Resume state is deserialized from an arbitrary on-disk JSON file, so every snowflake-typed
+        // field is attacker-controllable. Validate each one before it can flow into a Discord REST
+        // URL path, where characters like '/', '?' or '..' would otherwise redirect the bot's
+        // authenticated request to a different API route (path-injection / confused-deputy).
+        RequireSnowflake(state.SourceChannelId, nameof(state.SourceChannelId));
+        RequireSnowflake(state.DestinationChannelId, nameof(state.DestinationChannelId));
+        RequireSnowflake(state.GuildId, nameof(state.GuildId));
+        RequireSnowflake(state.WebhookId, nameof(state.WebhookId));
+        if (state.LastSuccessfulSourceMessageId is not null)
+            RequireSnowflake(state.LastSuccessfulSourceMessageId, nameof(state.LastSuccessfulSourceMessageId));
+        foreach (var entry in state.MessageIdMap)
+        {
+            RequireSnowflake(entry.Key, "MessageIdMap key");
+            // "dry-run" is a legitimate placeholder value written for dry-run map entries.
+            if (entry.Value != "dry-run")
+                RequireSnowflake(entry.Value, "MessageIdMap value");
+        }
+
         // Create per-migration log file (append to existing if resuming)
         if (!System.Text.RegularExpressions.Regex.IsMatch(state.MigrationId, @"^[A-Za-z0-9_-]+$"))
             throw new ArgumentException($"Invalid migration ID format: {state.MigrationId}");
@@ -514,6 +533,9 @@ public sealed class MigrationEngine
                 richEmbeds = null;
             }
         }
+
+        // Defensively sanitize forwarded bot embeds (cap count, strip non-http URLs).
+        richEmbeds = EmbedSanitizer.Sanitize(richEmbeds);
 
         if (state.Options.DryRun)
         {
@@ -830,6 +852,17 @@ public sealed class MigrationEngine
     }
 
     /// <summary>
+    /// Throws an <see cref="ArgumentException"/> if <paramref name="value"/> is not a valid Discord
+    /// snowflake. Used to validate attacker-controllable fields loaded from a resume-state file
+    /// before they are interpolated into REST URL paths.
+    /// </summary>
+    private static void RequireSnowflake(string? value, string fieldName)
+    {
+        if (!Snowflake.IsValid(value))
+            throw new ArgumentException($"Resume state contains an invalid Discord ID for {fieldName}.", nameof(value));
+    }
+
+    /// <summary>
     /// Truncates a string to the specified maximum length, appending an ellipsis if truncated.
     /// </summary>
     private static string? Truncate(string? value, int maxLength)
@@ -839,4 +872,77 @@ public sealed class MigrationEngine
 
         return value[..maxLength] + "...";
     }
+}
+
+/// <summary>
+/// Defensive sanitization for bot-authored rich embeds that are forwarded verbatim through a
+/// webhook. Shared by <see cref="MigrationEngine"/> and the move-command handler so both apply
+/// the same hardening: Discord allows at most 10 embeds per message, and any URL field whose
+/// scheme is not http/https is nulled out so non-http URL schemes cannot be injected.
+/// </summary>
+internal static class EmbedSanitizer
+{
+    /// <summary>Discord's hard limit on embeds per message.</summary>
+    private const int MaxEmbeds = 10;
+
+    /// <summary>
+    /// Returns a sanitized copy of <paramref name="embeds"/> with the count capped at 10 and every
+    /// non-http(s) URL field removed, or <c>null</c> if the input is null or empty.
+    /// </summary>
+    /// <param name="embeds">The embeds to sanitize, or <c>null</c>.</param>
+    /// <returns>A sanitized list, or <c>null</c> when there is nothing to send.</returns>
+    public static List<Embed>? Sanitize(List<Embed>? embeds)
+    {
+        if (embeds is not { Count: > 0 })
+            return null;
+
+        return embeds.Take(MaxEmbeds).Select(SanitizeEmbed).ToList();
+    }
+
+    private static Embed SanitizeEmbed(Embed embed)
+    {
+        // Embed and its sub-objects are init-only, so rebuild rather than mutate.
+        return new Embed
+        {
+            Title = embed.Title,
+            Type = embed.Type,
+            Description = embed.Description,
+            Url = SafeUrl(embed.Url),
+            Timestamp = embed.Timestamp,
+            Color = embed.Color,
+            Footer = embed.Footer is null
+                ? null
+                : new EmbedFooter { Text = embed.Footer.Text, IconUrl = SafeUrl(embed.Footer.IconUrl) },
+            Image = SanitizeMedia(embed.Image),
+            Thumbnail = SanitizeMedia(embed.Thumbnail),
+            Author = embed.Author is null
+                ? null
+                : new EmbedAuthor
+                {
+                    Name = embed.Author.Name,
+                    Url = SafeUrl(embed.Author.Url),
+                    IconUrl = SafeUrl(embed.Author.IconUrl)
+                },
+            Fields = embed.Fields
+        };
+    }
+
+    private static EmbedMedia? SanitizeMedia(EmbedMedia? media)
+    {
+        if (media is null)
+            return null;
+
+        // EmbedMedia.Url is required (non-null). If the source URL is not http(s), drop the whole
+        // media object rather than emit one with a blank required URL.
+        return IsHttpUrl(media.Url)
+            ? media
+            : null;
+    }
+
+    private static string? SafeUrl(string? url) => IsHttpUrl(url) ? url : null;
+
+    private static bool IsHttpUrl(string? url) =>
+        url is not null &&
+        (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase) ||
+         url.StartsWith("https://", StringComparison.OrdinalIgnoreCase));
 }

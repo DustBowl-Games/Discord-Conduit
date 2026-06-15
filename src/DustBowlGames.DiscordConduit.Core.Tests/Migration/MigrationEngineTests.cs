@@ -332,30 +332,31 @@ public class MigrationEngineTests : IDisposable
             MakeMessageJson("2", content: "second"),
         };
 
+        // Real Discord IDs are numeric snowflakes; resume validates these fields.
         var handler = new FakeHttpHandler()
             // after= fetch for remaining messages
-            .RespondJson(HttpMethod.Get, "/channels/src-chan/messages", remainingMessages)
+            .RespondJson(HttpMethod.Get, "/channels/1001/messages", remainingMessages)
             // Webhook still exists
-            .RespondJson(HttpMethod.Get, "/webhooks/wh-1", MakeWebhookJson())
+            .RespondJson(HttpMethod.Get, "/webhooks/4004", MakeWebhookJson("4004"))
             // Webhook execute for remaining messages
-            .RespondJson(HttpMethod.Post, "/webhooks/wh-1/wh-token", MakeRepostedMessageJson("r2"))
-            .RespondJson(HttpMethod.Post, "/webhooks/wh-1/wh-token", MakeRepostedMessageJson("r3"))
-            .Respond(HttpMethod.Delete, "/webhooks/wh-1", HttpStatusCode.NoContent);
+            .RespondJson(HttpMethod.Post, "/webhooks/4004/wh-token", MakeRepostedMessageJson("502"))
+            .RespondJson(HttpMethod.Post, "/webhooks/4004/wh-token", MakeRepostedMessageJson("503"))
+            .Respond(HttpMethod.Delete, "/webhooks/4004", HttpStatusCode.NoContent);
 
         var state = new MigrationState
         {
             MigrationId = "test-resume-migration",
-            SourceChannelId = "src-chan",
-            DestinationChannelId = "dst-chan",
-            GuildId = "guild-1",
-            WebhookId = "wh-1",
+            SourceChannelId = "1001",
+            DestinationChannelId = "2002",
+            GuildId = "3003",
+            WebhookId = "4004",
             WebhookToken = "wh-token",
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
             Phase = MigrationPhase.MigratingMessages,
             MigratedCount = 1,
             LastSuccessfulSourceMessageId = "1",
-            MessageIdMap = new Dictionary<string, string> { ["1"] = "r1" },
-            Options = DefaultOptions()
+            MessageIdMap = new Dictionary<string, string> { ["1"] = "501" },
+            Options = new MigrationOptions("1001", "2002", "3003")
         };
 
         var engine = CreateEngine(handler);
@@ -377,25 +378,25 @@ public class MigrationEngineTests : IDisposable
         };
 
         var handler = new FakeHttpHandler()
-            .RespondJson(HttpMethod.Get, "/channels/src-chan/messages", messages)
-            .RespondJson(HttpMethod.Get, "/webhooks/wh-1", MakeWebhookJson())
-            .RespondJson(HttpMethod.Post, "/webhooks/wh-1/wh-token", MakeRepostedMessageJson("r1"))
-            .RespondJson(HttpMethod.Post, "/webhooks/wh-1/wh-token", MakeRepostedMessageJson("r2"))
-            .Respond(HttpMethod.Delete, "/webhooks/wh-1", HttpStatusCode.NoContent);
+            .RespondJson(HttpMethod.Get, "/channels/1001/messages", messages)
+            .RespondJson(HttpMethod.Get, "/webhooks/4004", MakeWebhookJson("4004"))
+            .RespondJson(HttpMethod.Post, "/webhooks/4004/wh-token", MakeRepostedMessageJson("501"))
+            .RespondJson(HttpMethod.Post, "/webhooks/4004/wh-token", MakeRepostedMessageJson("502"))
+            .Respond(HttpMethod.Delete, "/webhooks/4004", HttpStatusCode.NoContent);
 
         var state = new MigrationState
         {
             MigrationId = "test-resume-from-start",
-            SourceChannelId = "src-chan",
-            DestinationChannelId = "dst-chan",
-            GuildId = "guild-1",
-            WebhookId = "wh-1",
+            SourceChannelId = "1001",
+            DestinationChannelId = "2002",
+            GuildId = "3003",
+            WebhookId = "4004",
             WebhookToken = "wh-token",
             StartedAt = DateTimeOffset.UtcNow.AddMinutes(-5),
             Phase = MigrationPhase.MigratingMessages,
             MigratedCount = 0,
             LastSuccessfulSourceMessageId = null,
-            Options = DefaultOptions()
+            Options = new MigrationOptions("1001", "2002", "3003")
         };
 
         var engine = CreateEngine(handler);

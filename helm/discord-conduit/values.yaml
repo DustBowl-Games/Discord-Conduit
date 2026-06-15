@@ -51,11 +51,15 @@ podSecurityContext:
   runAsUser: 10001
   runAsGroup: 10001
   fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
 
 # Container-level security context — drop privileges and lock down the root FS.
+# A read-only root filesystem requires writable mounts for the app's log /
+# migration-state directory ($HOME/.config) and /tmp — see deployment.yaml.
 securityContext:
   allowPrivilegeEscalation: false
-  readOnlyRootFilesystem: false
+  readOnlyRootFilesystem: true
   runAsNonRoot: true
   runAsUser: 10001
   capabilities:

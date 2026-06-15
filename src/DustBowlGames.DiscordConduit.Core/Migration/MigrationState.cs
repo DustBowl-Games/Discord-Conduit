@@ -11,6 +11,11 @@ public sealed class MigrationState
 {
     private static JsonSerializerOptions JsonOptions => Core.Json.CoreJsonOptions.Default;
 
+    // A well-formed migration id (also used as a directory name): letters, digits, hyphen,
+    // underscore only. Used to guard recursive deletes and loaded-state ids.
+    private static readonly System.Text.RegularExpressions.Regex MigrationIdRegex =
+        new(@"^[A-Za-z0-9_-]+$", System.Text.RegularExpressions.RegexOptions.Compiled);
+
     /// <summary>Schema version of the state file.</summary>
     [JsonPropertyName("version")]
     public int Version { get; set; } = 1;
@@ -153,16 +158,30 @@ public sealed class MigrationState
         {
             var stateFile = Path.Combine(dir, "state.json");
             var state = await LoadAsync(stateFile).ConfigureAwait(false);
-            if (state is not null)
-                states.Add(state);
+            if (state is null)
+                continue;
+
+            // Discard a planted file whose id is malformed (its id drives later writes via
+            // GetStateFilePath) or whose id doesn't match the folder it was loaded from.
+            if (!MigrationIdRegex.IsMatch(state.MigrationId))
+                continue;
+            if (!string.Equals(state.MigrationId, Path.GetFileName(dir), StringComparison.Ordinal))
+                continue;
+
+            states.Add(state);
         }
 
         // Also load legacy flat files: migrations/{id}.json
         foreach (var file in Directory.GetFiles(migrationsDir, "*.json"))
         {
             var state = await LoadAsync(file).ConfigureAwait(false);
-            if (state is not null)
-                states.Add(state);
+            if (state is null)
+                continue;
+
+            if (!MigrationIdRegex.IsMatch(state.MigrationId))
+                continue;
+
+            states.Add(state);
         }
 
         return states;
@@ -188,6 +207,22 @@ public sealed class MigrationState
         {
             try
             {
+                // Never follow a reparse point/symlink/junction into a recursive delete — that
+                // could delete content outside the migrations tree.
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0)
+                {
+                    logger.Warning("Skipping reparse-point migration directory {DirPath}", dir);
+                    continue;
+                }
+
+                // Only delete well-formed migration directories. Anything else was not created by
+                // us and is not eligible for recursive deletion.
+                if (!MigrationIdRegex.IsMatch(Path.GetFileName(dir)))
+                {
+                    logger.Warning("Skipping non-migration directory {DirPath}", dir);
+                    continue;
+                }
+
                 var stateFile = Path.Combine(dir, "state.json");
                 if (!File.Exists(stateFile))
                     continue;
@@ -211,6 +246,13 @@ public sealed class MigrationState
         {
             try
             {
+                // Only delete well-formed legacy state files (name without extension is the id).
+                if (!MigrationIdRegex.IsMatch(Path.GetFileNameWithoutExtension(file)))
+                {
+                    logger.Warning("Skipping non-migration state file {FilePath}", file);
+                    continue;
+                }
+
                 var lastWrite = File.GetLastWriteTimeUtc(file);
                 if (lastWrite < cutoff)
                 {

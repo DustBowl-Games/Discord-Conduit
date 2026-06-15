@@ -44,6 +44,18 @@ spec:
             {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          # Writable mounts required by readOnlyRootFilesystem: true. The app
+          # persists logs + migration state under $HOME/.config (HOME=/home/conduit).
+          volumeMounts:
+            - name: data
+              mountPath: /home/conduit/.config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

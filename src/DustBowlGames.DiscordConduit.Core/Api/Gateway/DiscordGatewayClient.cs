@@ -82,6 +82,15 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
         var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", ct).ConfigureAwait(false);
         var url = $"{gatewayInfo.Url}?v=10&encoding=json";
 
+        // The token is sent immediately after connecting, so refuse to connect to a non-Discord
+        // host even if /gateway/bot returns something unexpected.
+        if (!IsValidGatewayUrl(url))
+        {
+            _logger.Warning("Gateway URL failed validation: {Url}", url);
+            throw new InvalidOperationException(
+                "Discord returned an invalid gateway URL. Refusing to connect.");
+        }
+
         _logger.Information("Connecting to gateway: {Url}", url);
 
         _readyTcs = new TaskCompletionSource();
@@ -240,12 +249,31 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
                     Volatile.Write(ref _lastSequence, payload.S.Value);
                 }
 
-                await HandlePayloadAsync(payload, ct).ConfigureAwait(false);
+                try
+                {
+                    await HandlePayloadAsync(payload, ct).ConfigureAwait(false);
+                }
+                catch (JsonException ex)
+                {
+                    // Belt-and-suspenders: a malformed dispatch payload must not fault the receive
+                    // task (which would leave the bot connected but deaf). Log and keep reading.
+                    _logger.Warning(ex, "Failed to handle gateway dispatch payload");
+                }
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Normal shutdown
+        }
+        catch (JsonException ex)
+        {
+            // Defensive backstop for any JsonException not caught closer to the deserialization
+            // site. Log and continue reading rather than faulting the receive loop.
+            _logger.Warning(ex, "JSON error in receive loop");
+            if (!ct.IsCancellationRequested)
+            {
+                await HandleReconnectAsync(ct).ConfigureAwait(false);
+            }
         }
         catch (WebSocketException ex)
         {
@@ -309,8 +337,22 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
 
         _logger.Information("Received Hello, heartbeat interval: {Interval}ms", hello.HeartbeatInterval);
 
+        // The server-supplied interval is untrusted. A value of 0 makes the heartbeat loop
+        // hot-spin (CPU burn + heartbeat flood) and a negative value throws on Task.Delay, so
+        // reject non-positive intervals with a clean reconnect and clamp anything else to a sane
+        // range before starting the loop.
+        if (hello.HeartbeatInterval <= 0)
+        {
+            _logger.Warning("Gateway sent invalid heartbeat interval {Interval}ms, reconnecting",
+                hello.HeartbeatInterval);
+            await HandleReconnectAsync(ct).ConfigureAwait(false);
+            return;
+        }
+
+        var interval = Math.Clamp(hello.HeartbeatInterval, 1000, 600000);
+
         Volatile.Write(ref _heartbeatAcked, true);
-        _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(hello.HeartbeatInterval, ct), ct);
+        _heartbeatTask = Task.Run(() => HeartbeatLoopAsync(interval, ct), ct);
 
         if (_sessionId is not null)
         {
@@ -329,17 +371,30 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
             case "READY":
                 if (payload.D.HasValue)
                 {
-                    var ready = JsonSerializer.Deserialize<ReadyData>(
-                        payload.D.Value.GetRawText(), JsonOptions);
-                    if (ready is not null)
+                    // A malformed/missing-required-field READY would throw a JsonException that
+                    // propagates into ReceiveLoopAsync and faults the receive task (bot connected
+                    // but deaf). Wrap it like INTERACTION_CREATE so a bad payload is logged and the
+                    // loop continues.
+                    try
                     {
-                        _sessionId = ready.SessionId;
-                        _resumeGatewayUrl = ready.ResumeGatewayUrl;
-                        ApplicationId = ready.Application.Id;
-                        IsConnected = true;
-                        _logger.Information("Gateway READY, session={SessionId}, app={AppId}",
-                            _sessionId, ApplicationId);
-                        _readyTcs.TrySetResult();
+                        var ready = JsonSerializer.Deserialize<ReadyData>(
+                            payload.D.Value.GetRawText(), JsonOptions);
+                        if (ready is not null)
+                        {
+                            _sessionId = ready.SessionId;
+                            _resumeGatewayUrl = ready.ResumeGatewayUrl;
+                            ApplicationId = ready.Application.Id;
+                            IsConnected = true;
+                            // session_id is a resume credential — log only a short prefix, never
+                            // the full value.
+                            _logger.Information("Gateway READY, session={SessionId}, app={AppId}",
+                                RedactSessionId(_sessionId), ApplicationId);
+                            _readyTcs.TrySetResult();
+                        }
+                    }
+                    catch (JsonException ex)
+                    {
+                        _logger.Warning(ex, "Failed to deserialize READY payload");
                     }
                 }
                 break;
@@ -378,9 +433,12 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
     {
         try
         {
-            // First heartbeat uses jitter
+            // First heartbeat uses jitter. Compute in double/long so the multiplication can't
+            // overflow, then clamp the delay into the valid Task.Delay range.
             var jitter = Random.Shared.NextDouble();
-            await Task.Delay((int)(intervalMs * jitter), ct).ConfigureAwait(false);
+            var firstDelay = (long)(intervalMs * jitter);
+            firstDelay = Math.Clamp(firstDelay, 0, intervalMs);
+            await Task.Delay(TimeSpan.FromMilliseconds(firstDelay), ct).ConfigureAwait(false);
 
             while (!ct.IsCancellationRequested)
             {
@@ -393,7 +451,7 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
 
                 Volatile.Write(ref _heartbeatAcked, false);
                 await SendHeartbeatAsync(ct).ConfigureAwait(false);
-                await Task.Delay(intervalMs, ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromMilliseconds(intervalMs), ct).ConfigureAwait(false);
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -471,9 +529,20 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
             seq = LastSequenceOrNull()
         };
 
-        _logger.Information("Sending RESUME for session {SessionId}", _sessionId);
+        _logger.Information("Sending RESUME for session {SessionId}", RedactSessionId(_sessionId));
         var payload = new GatewayPayload { Op = 6, D = SerializeToElement(resume) };
         return SendAsync(payload, ct);
+    }
+
+    /// <summary>
+    /// Redacts a gateway session_id for logging. The session_id is a resume credential, so only a
+    /// short prefix is emitted.
+    /// </summary>
+    private static string RedactSessionId(string? sessionId)
+    {
+        if (string.IsNullOrEmpty(sessionId))
+            return "(none)";
+        return sessionId.Length <= 6 ? sessionId + "…" : sessionId[..6] + "…";
     }
 
     private async Task SendAsync(GatewayPayload payload, CancellationToken ct)
@@ -555,6 +624,19 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
             if (_stopping || newCt.IsCancellationRequested) return;
 
             var baseUrl = _resumeGatewayUrl;
+
+            // The resume URL comes from an untrusted READY payload. If it doesn't validate as a
+            // Discord gateway endpoint, discard it (and the resume attempt) and fall back to a
+            // fresh GET /gateway/bot so we never send the token to an attacker-controlled host.
+            if (baseUrl is not null && !IsValidGatewayUrl($"{baseUrl}?v=10&encoding=json"))
+            {
+                _logger.Warning("Resume gateway URL failed validation, falling back to /gateway/bot");
+                _resumeGatewayUrl = null;
+                _sessionId = null;
+                Volatile.Write(ref _lastSequence, NoSequence);
+                baseUrl = null;
+            }
+
             if (baseUrl is null)
             {
                 var gatewayInfo = await _restClient.GetAsync<GatewayBotResponse>("/gateway/bot", newCt).ConfigureAwait(false);
@@ -562,6 +644,15 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
             }
 
             var url = $"{baseUrl}?v=10&encoding=json";
+
+            // Final guard for the freshly-fetched URL as well. Don't throw here — a throw would
+            // fault whichever loop drove the reconnect. Leave _ws null and return; the heartbeat
+            // watchdog/gateway will retrigger a reconnect later.
+            if (!IsValidGatewayUrl(url))
+            {
+                _logger.Warning("Reconnect gateway URL failed validation, aborting reconnect: {Url}", url);
+                return;
+            }
 
             _logger.Information("Reconnecting to gateway: {Url}", url);
 
@@ -584,4 +675,48 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
     }
+
+    /// <summary>
+    /// Validates a Discord gateway WebSocket URL before connecting. IDENTIFY/RESUME send the bot
+    /// token immediately after connecting, so a tampered URL (from /gateway/bot or a READY
+    /// resume_gateway_url) could exfiltrate the token off-host. Requires a <c>wss</c> scheme and a
+    /// host within Discord's domains.
+    /// </summary>
+    /// <param name="url">The candidate gateway URL.</param>
+    /// <returns><c>true</c> if the URL is a well-formed Discord gateway endpoint.</returns>
+    private static bool IsValidGatewayUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+            return false;
+
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            return false;
+
+        if (!string.Equals(uri.Scheme, "wss", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        var host = uri.Host;
+        if (string.IsNullOrEmpty(host))
+            return false;
+
+        // Allow Discord's apex domains exactly, and any subdomain under them (e.g.
+        // gateway.discord.gg, gateway-us-east1-d.discord.gg).
+        foreach (var domain in GatewayDomains)
+        {
+            if (string.Equals(host, domain, StringComparison.OrdinalIgnoreCase) ||
+                host.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static readonly string[] GatewayDomains =
+    [
+        "discord.gg",
+        "discord.com",
+        "discordapp.com"
+    ];
 }

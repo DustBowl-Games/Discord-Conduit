@@ -13,6 +13,8 @@
 # ---------------------------------------------------------------------------
 # Build stage — full SDK, restore + publish the CLI project only.
 # ---------------------------------------------------------------------------
+# Base-image updates (including digest pinning) are managed by Dependabot's
+# docker ecosystem, so we intentionally track the floating :10.0 tag here.
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 
@@ -22,10 +24,15 @@ COPY Discord-Conduit.slnx ./
 COPY Directory.Build.props ./
 COPY src/DustBowlGames.DiscordConduit.Core/DustBowlGames.DiscordConduit.Core.csproj src/DustBowlGames.DiscordConduit.Core/
 COPY src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordConduit.Cli.csproj src/DustBowlGames.DiscordConduit.Cli/
+# Copy the lock files alongside their projects so --locked-mode can pin the
+# exact, hashed package versions and the build stays reproducible.
+COPY src/DustBowlGames.DiscordConduit.Core/packages.lock.json src/DustBowlGames.DiscordConduit.Core/
+COPY src/DustBowlGames.DiscordConduit.Cli/packages.lock.json src/DustBowlGames.DiscordConduit.Cli/
 
 # Restore just the CLI project (it transitively pulls in Core). We deliberately
-# do NOT restore/build the App (GUI) or Tests projects.
-RUN dotnet restore src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordConduit.Cli.csproj
+# do NOT restore/build the App (GUI) or Tests projects. --locked-mode fails the
+# build if a resolved version drifts from packages.lock.json.
+RUN dotnet restore src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordConduit.Cli.csproj --locked-mode
 
 # Copy the remaining source and publish. Framework-dependent publish is fine
 # because the runtime stage already carries the .NET runtime.
@@ -39,6 +46,8 @@ RUN dotnet publish src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordCon
 # ---------------------------------------------------------------------------
 # Runtime stage — console runtime only (NOT aspnet), non-root user.
 # ---------------------------------------------------------------------------
+# Base-image updates (including digest pinning) are managed by Dependabot's
+# docker ecosystem, so we intentionally track the floating :10.0 tag here.
 FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
 
 # OCI image metadata.

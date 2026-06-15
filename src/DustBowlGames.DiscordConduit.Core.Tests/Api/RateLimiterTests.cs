@@ -92,4 +92,27 @@ public class RateLimiterTests
         var result = RateLimiter.GetRouteKey(httpMethod, path);
         Assert.Equal(expected, result);
     }
+
+    [Fact]
+    public void GetRouteKey_RedactsWebhookTokenAndQueryString()
+    {
+        // Webhook tokens are not digit-only, so without redaction they would survive into the
+        // route key — which gets logged and used as a dictionary key.
+        var key = RateLimiter.GetRouteKey(
+            HttpMethod.Post, "/webhooks/123456/SECRETtoken_abc-DEF.xyz?wait=true");
+
+        Assert.DoesNotContain("SECRETtoken", key);
+        Assert.DoesNotContain("wait=true", key);
+        Assert.Contains("123456", key); // webhook id is preserved for correct per-webhook bucketing
+    }
+
+    [Fact]
+    public void GetRouteKey_RedactsInteractionToken()
+    {
+        var key = RateLimiter.GetRouteKey(
+            HttpMethod.Post, "/interactions/789012/SUPERsecret.interaction-token/callback");
+
+        Assert.DoesNotContain("SUPERsecret", key);
+        Assert.Contains("789012", key);
+    }
 }

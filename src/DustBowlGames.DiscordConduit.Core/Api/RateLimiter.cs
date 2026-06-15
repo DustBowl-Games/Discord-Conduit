@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Serilog;
 
 namespace DustBowlGames.DiscordConduit.Core.Api;
@@ -121,6 +122,17 @@ public sealed class RateLimiter
     /// <returns>A route key string.</returns>
     public static string GetRouteKey(HttpMethod method, string path)
     {
+        // Strip any query string — it can carry tokens/secrets and is never part of the bucket.
+        var queryIndex = path.IndexOf('?');
+        if (queryIndex >= 0)
+            path = path[..queryIndex];
+
+        // Redact webhook/interaction tokens, which are NOT digit-only and would otherwise survive
+        // verbatim into the route key — and thus into logs and the in-memory bucket dictionaries.
+        // The webhook/interaction ID (first \d+ segment) is preserved so per-webhook bucket grouping
+        // still works; only the secret token segment after it is replaced.
+        path = Regex.Replace(path, @"(/(?:interactions|webhooks)/\d+/)[^/?]+", "$1{token}");
+
         // Replace snowflake IDs (digits-only path segments) with {id},
         // but keep the first resource ID to distinguish major parameters
         var segments = path.Split('/');
@@ -251,6 +263,9 @@ public sealed class RateLimiter
                 if (double.TryParse(resetValues.First(), System.Globalization.NumberStyles.Float,
                     System.Globalization.CultureInfo.InvariantCulture, out var seconds))
                 {
+                    // Clamp to a sane upper bound so a bogus huge header value can't park the
+                    // bucket far in the future (mirrors the 60s clamp in GetRetryAfterAsync).
+                    seconds = Math.Min(seconds, 3600);
                     resetAfter = TimeSpan.FromSeconds(seconds);
                 }
             }

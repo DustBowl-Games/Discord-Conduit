@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DustBowlGames.DiscordConduit.Core.Api;
 using DustBowlGames.DiscordConduit.Core.Api.Endpoints;
 using DustBowlGames.DiscordConduit.Core.Api.Gateway;
 using DustBowlGames.DiscordConduit.Core.Api.Models;
@@ -288,6 +289,15 @@ public sealed class MoveCommandHandler
             return;
         }
 
+        // Reject non-snowflake IDs before they flow into REST URL paths. A value like
+        // "x/../../guilds/999/bans" would otherwise be URL-normalized into a different
+        // authenticated API route (path-injection / confused-deputy).
+        if (!Snowflake.IsValid(startId) || !Snowflake.IsValid(endId))
+        {
+            await RespondEphemeralAsync(interaction, "Message IDs must be numeric Discord IDs.").ConfigureAwait(false);
+            return;
+        }
+
         // -2 = range mode (use TargetMessageId as start, EndMessageId as end)
         var session = CreateSession(interaction, interaction.ChannelId, startId, messageCount: -2);
         if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
@@ -309,6 +319,14 @@ public sealed class MoveCommandHandler
         if (threadId is null)
         {
             await RespondEphemeralAsync(interaction, "Please provide a thread or forum post.").ConfigureAwait(false);
+            return;
+        }
+
+        // Reject non-snowflake IDs before they flow into REST URL paths (path-injection guard).
+        // Done BEFORE the permission check so a malformed ID can never reach channel resolution.
+        if (!Snowflake.IsValid(threadId))
+        {
+            await RespondEphemeralAsync(interaction, "Thread must be a valid Discord channel.").ConfigureAwait(false);
             return;
         }
 
@@ -936,6 +954,9 @@ public sealed class MoveCommandHandler
                     if (richEmbeds.Count == 0) richEmbeds = null;
                 }
 
+                // Defensively sanitize forwarded bot embeds (cap count, strip non-http URLs).
+                richEmbeds = EmbedSanitizer.Sanitize(richEmbeds);
+
                 // Skip messages that have no content, no attachments, and no embeds
                 var hasContent = !string.IsNullOrEmpty(content);
                 var hasFiles = uploadable.Count > 0;
@@ -1237,7 +1258,9 @@ public sealed class MoveCommandHandler
         return _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
         {
             type = 4,
-            data = new { content = message, flags = 64 }
+            // Defense-in-depth: suppress all mentions so any future content interpolation
+            // (error text, IDs) can never ping a user, role, or @everyone/@here.
+            data = new { content = message, flags = 64, allowed_mentions = new { parse = Array.Empty<string>() } }
         });
     }
 
@@ -1288,9 +1311,13 @@ public sealed class MoveCommandHandler
 
     private static int CompareSnowflakes(string a, string b)
     {
-        if (ulong.TryParse(a, out var ua) && ulong.TryParse(b, out var ub))
-            return ua.CompareTo(ub);
-        return string.Compare(a, b, StringComparison.Ordinal);
+        // All IDs reaching this point are validated upstream (slash-command options are checked
+        // with Snowflake.IsValid before a session is created, and message IDs come from Discord).
+        // A non-numeric value here is therefore a programming error, not user input — fail loudly
+        // rather than silently falling back to an ordinal string compare that could mis-order IDs.
+        if (!ulong.TryParse(a, out var ua) || !ulong.TryParse(b, out var ub))
+            throw new ArgumentException($"CompareSnowflakes received a non-numeric snowflake: '{a}' / '{b}'.");
+        return ua.CompareTo(ub);
     }
 
     // Discord epoch (2015-01-01T00:00:00Z) in Unix milliseconds.
