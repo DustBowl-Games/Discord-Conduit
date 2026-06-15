@@ -7,6 +7,8 @@ on:
 jobs:
   build:
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       matrix:
         include:
@@ -30,15 +32,16 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Restore
-        run: dotnet restore
+        run: dotnet restore --locked-mode
 
       - name: Test
-        run: dotnet test --configuration Release --verbosity normal
+        run: dotnet test --no-restore --configuration Release --verbosity normal
 
       - name: Publish
         run: >
           dotnet publish src/DustBowlGames.DiscordConduit.App/DustBowlGames.DiscordConduit.App.csproj
           --configuration Release
+          --no-restore
           --runtime ${{ matrix.rid }}
           --self-contained true
           --output ./publish/${{ matrix.rid }}

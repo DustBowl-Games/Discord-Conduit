@@ -1,4 +1,5 @@
 using System.Text.Json;
+using DustBowlGames.DiscordConduit.Core.Api;
 using DustBowlGames.DiscordConduit.Core.Api.Endpoints;
 using DustBowlGames.DiscordConduit.Core.Api.Gateway;
 using DustBowlGames.DiscordConduit.Core.Api.Models;
@@ -127,16 +128,16 @@ public sealed class MoveCommandHandler
             switch (interaction.Data.Name)
             {
                 case MoveThisCommand:
-                    await HandleMoveThisAsync(interaction);
+                    await HandleMoveThisAsync(interaction).ConfigureAwait(false);
                     break;
                 case MoveThisBelowCommand:
-                    await HandleMoveThisBelowAsync(interaction);
+                    await HandleMoveThisBelowAsync(interaction).ConfigureAwait(false);
                     break;
                 case MoveRangeCommand:
-                    await HandleMoveRangeAsync(interaction);
+                    await HandleMoveRangeAsync(interaction).ConfigureAwait(false);
                     break;
                 case MoveThreadCommand:
-                    await HandleMoveThreadAsync(interaction);
+                    await HandleMoveThreadAsync(interaction).ConfigureAwait(false);
                     break;
                 default:
                     _logger.Warning("Unknown command: {CommandName}", interaction.Data.Name);
@@ -146,7 +147,11 @@ public sealed class MoveCommandHandler
         catch (Exception ex)
         {
             _logger.Error(ex, "Error handling command {CommandName}", interaction.Data.Name);
-            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
+            // The exception may have been thrown before any ACK was sent, in which case
+            // EditOriginal would fail because no original response exists. Attempt an
+            // ephemeral response first, then fall back to editing the original.
+            await TryRespondEphemeralAsync(interaction, SanitizeErrorMessage(ex)).ConfigureAwait(false);
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex)).ConfigureAwait(false);
         }
     }
 
@@ -161,42 +166,59 @@ public sealed class MoveCommandHandler
     /// <param name="interaction">The interaction event.</param>
     public async Task HandleComponentAsync(InteractionCreateEvent interaction)
     {
-        if (interaction.Data is null) return;
+        if (interaction.Data is null)
+        {
+            await TryRespondEphemeralAsync(interaction, "This action is no longer available. Please start over.").ConfigureAwait(false);
+            return;
+        }
 
         var customId = interaction.Data.CustomId;
-        if (customId is null) return;
+        if (customId is null)
+        {
+            await TryRespondEphemeralAsync(interaction, "This action is no longer available. Please start over.").ConfigureAwait(false);
+            return;
+        }
+
+        // The handler is chosen by the base portion of the custom_id (before the ':').
+        // The suffix is a per-flow session nonce validated inside each handler.
+        var baseId = ParseBaseCustomId(customId);
 
         try
         {
-            switch (customId)
+            switch (baseId)
             {
                 case "move_action":
-                    await HandleActionSelectAsync(interaction);
+                    await HandleActionSelectAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 case "move_dest":
-                    await HandleDestinationSelectAsync(interaction);
+                    await HandleDestinationSelectAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 case "move_yes":
-                    await HandleConfirmYesAsync(interaction);
+                    await HandleConfirmYesAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 case "move_no":
-                    await HandleConfirmNoAsync(interaction);
+                    await HandleConfirmNoAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 case "move_delete":
-                    await HandleDeleteOriginalsAsync(interaction);
+                    await HandleDeleteOriginalsAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 case "move_keep":
-                    await HandleKeepOriginalsAsync(interaction);
+                    await HandleKeepOriginalsAsync(interaction, customId).ConfigureAwait(false);
                     break;
                 default:
                     _logger.Warning("Unknown component custom_id: {CustomId}", customId);
+                    await TryRespondEphemeralAsync(interaction,
+                        "This action is no longer available. Please start over.").ConfigureAwait(false);
                     break;
             }
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Error handling component interaction {CustomId}", customId);
-            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
+            // An exception may have been thrown before any ACK was sent, in which case
+            // EditOriginal would fail. Try an ephemeral response first, then fall back.
+            await TryRespondEphemeralAsync(interaction, SanitizeErrorMessage(ex)).ConfigureAwait(false);
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex)).ConfigureAwait(false);
         }
     }
 
@@ -223,14 +245,14 @@ public sealed class MoveCommandHandler
         var targetId = interaction.Data!.TargetId;
         if (targetId is null || interaction.ChannelId is null)
         {
-            await RespondEphemeralAsync(interaction, "Could not find the target message.");
+            await RespondEphemeralAsync(interaction, "Could not find the target message.").ConfigureAwait(false);
             return;
         }
 
         var session = CreateSession(interaction, interaction.ChannelId, targetId, messageCount: 1);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild."); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
 
-        await RespondWithActionSelectAsync(interaction);
+        await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
 
     private async Task HandleMoveThisBelowAsync(InteractionCreateEvent interaction)
@@ -238,15 +260,15 @@ public sealed class MoveCommandHandler
         var targetId = interaction.Data!.TargetId;
         if (targetId is null || interaction.ChannelId is null)
         {
-            await RespondEphemeralAsync(interaction, "Could not find the target message.");
+            await RespondEphemeralAsync(interaction, "Could not find the target message.").ConfigureAwait(false);
             return;
         }
 
         // -1 = all from target downward
         var session = CreateSession(interaction, interaction.ChannelId, targetId, messageCount: -1);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild."); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
 
-        await RespondWithActionSelectAsync(interaction);
+        await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
 
     private async Task HandleMoveRangeAsync(InteractionCreateEvent interaction)
@@ -254,7 +276,7 @@ public sealed class MoveCommandHandler
         var options = interaction.Data!.Options;
         if (options is null || interaction.ChannelId is null)
         {
-            await RespondEphemeralAsync(interaction, "Missing required options.");
+            await RespondEphemeralAsync(interaction, "Missing required options.").ConfigureAwait(false);
             return;
         }
 
@@ -263,16 +285,25 @@ public sealed class MoveCommandHandler
 
         if (startId is null || endId is null)
         {
-            await RespondEphemeralAsync(interaction, "Please provide both start and end message IDs.");
+            await RespondEphemeralAsync(interaction, "Please provide both start and end message IDs.").ConfigureAwait(false);
+            return;
+        }
+
+        // Reject non-snowflake IDs before they flow into REST URL paths. A value like
+        // "x/../../guilds/999/bans" would otherwise be URL-normalized into a different
+        // authenticated API route (path-injection / confused-deputy).
+        if (!Snowflake.IsValid(startId) || !Snowflake.IsValid(endId))
+        {
+            await RespondEphemeralAsync(interaction, "Message IDs must be numeric Discord IDs.").ConfigureAwait(false);
             return;
         }
 
         // -2 = range mode (use TargetMessageId as start, EndMessageId as end)
         var session = CreateSession(interaction, interaction.ChannelId, startId, messageCount: -2);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild."); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
         session.EndMessageId = endId;
 
-        await RespondWithActionSelectAsync(interaction);
+        await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
 
     private async Task HandleMoveThreadAsync(InteractionCreateEvent interaction)
@@ -280,29 +311,70 @@ public sealed class MoveCommandHandler
         var options = interaction.Data!.Options;
         if (options is null)
         {
-            await RespondEphemeralAsync(interaction, "Missing required options.");
+            await RespondEphemeralAsync(interaction, "Missing required options.").ConfigureAwait(false);
             return;
         }
 
         var threadId = GetOptionString(options, "thread");
         if (threadId is null)
         {
-            await RespondEphemeralAsync(interaction, "Please provide a thread or forum post.");
+            await RespondEphemeralAsync(interaction, "Please provide a thread or forum post.").ConfigureAwait(false);
+            return;
+        }
+
+        // Reject non-snowflake IDs before they flow into REST URL paths (path-injection guard).
+        // Done BEFORE the permission check so a malformed ID can never reach channel resolution.
+        if (!Snowflake.IsValid(threadId))
+        {
+            await RespondEphemeralAsync(interaction, "Thread must be a valid Discord channel.").ConfigureAwait(false);
+            return;
+        }
+
+        // Authorization (confused-deputy guard): the bot would read ALL messages from this
+        // user-supplied channel using the BOT's permissions. Require that the INVOKING USER
+        // can actually view and read history in that channel, using Discord's own computed
+        // permissions from the resolved channel object. If they are unavailable or the
+        // required bits are missing, refuse before creating a session or fetching anything.
+        if (!UserCanReadResolvedChannel(interaction, threadId))
+        {
+            await RespondEphemeralAsync(interaction, "You don't have permission to read that channel.").ConfigureAwait(false);
             return;
         }
 
         // -3 = thread mode (move all messages from this thread)
         var session = CreateSession(interaction, threadId, targetMessageId: null, messageCount: -3);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild."); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
 
-        await RespondWithActionSelectAsync(interaction);
+        await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
+    }
+
+    // VIEW_CHANNEL (0x400) and READ_MESSAGE_HISTORY (0x10000) permission bits.
+    private const ulong PermViewChannel = 0x400;
+    private const ulong PermReadMessageHistory = 0x10000;
+
+    /// <summary>
+    /// Returns true if the invoking user's Discord-computed permissions for the resolved
+    /// channel include both VIEW_CHANNEL and READ_MESSAGE_HISTORY. Returns false if the
+    /// resolved permissions are unavailable, unparsable, or missing either bit.
+    /// </summary>
+    private static bool UserCanReadResolvedChannel(InteractionCreateEvent interaction, string channelId)
+    {
+        var channels = interaction.Data?.Resolved?.Channels;
+        if (channels is null || !channels.TryGetValue(channelId, out var resolved))
+            return false;
+
+        if (resolved.Permissions is null || !ulong.TryParse(resolved.Permissions, out var perms))
+            return false;
+
+        const ulong required = PermViewChannel | PermReadMessageHistory;
+        return (perms & required) == required;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Step 2: Action select
     // ─────────────────────────────────────────────────────────────────────────
 
-    private Task RespondWithActionSelectAsync(InteractionCreateEvent interaction)
+    private Task RespondWithActionSelectAsync(InteractionCreateEvent interaction, InteractionSession session)
     {
         return _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
         {
@@ -321,7 +393,7 @@ public sealed class MoveCommandHandler
                             new
                             {
                                 type = 3,
-                                custom_id = "move_action",
+                                custom_id = ComponentId("move_action", session.SessionId),
                                 placeholder = "Select an action...",
                                 options = new object[]
                                 {
@@ -342,19 +414,15 @@ public sealed class MoveCommandHandler
     //  Step 3: Action select → Destination select
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleActionSelectAsync(InteractionCreateEvent interaction)
+    private async Task HandleActionSelectAsync(InteractionCreateEvent interaction, string customId)
     {
-        var session = GetSessionOrNull(interaction);
-        if (session is null)
-        {
-            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
-            return;
-        }
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
 
         var selectedAction = interaction.Data!.Values?[0];
         if (selectedAction is null)
         {
-            await RespondEphemeralAsync(interaction, "No action selected.");
+            await RespondEphemeralAsync(interaction, "No action selected.").ConfigureAwait(false);
             return;
         }
 
@@ -363,12 +431,16 @@ public sealed class MoveCommandHandler
         if (selectedAction == "thread")
         {
             // Threads don't appear in the channel select component — fetch active threads
-            // and present them in a string select menu
-            await ShowThreadSelectAsync(interaction, session);
+            // and present them in a string select menu. The fetch is a rate-limited HTTP
+            // GET, so we MUST ACK within Discord's 3s deadline BEFORE making it. Defer the
+            // component update (type 6) first, then render the select via EditOriginal.
+            await ShowThreadSelectAsync(interaction, session).ConfigureAwait(false);
         }
         else
         {
-            // Use the native channel select for channels and forum channels
+            // Use the native channel select for channels and forum channels.
+            // This path performs no network I/O before responding, so a synchronous
+            // type-7 (UPDATE_MESSAGE) response is safe and stays within the ACK deadline.
             var prompt = selectedAction switch
             {
                 "channel" => "**Select the destination channel**",
@@ -401,7 +473,7 @@ public sealed class MoveCommandHandler
                                 new
                                 {
                                     type = 8,
-                                    custom_id = "move_dest",
+                                    custom_id = ComponentId("move_dest", session.SessionId),
                                     placeholder = "Search for a channel...",
                                     channel_types = channelTypes
                                 }
@@ -409,35 +481,40 @@ public sealed class MoveCommandHandler
                         }
                     }
                 }
-            });
+            }).ConfigureAwait(false);
         }
     }
 
     private async Task ShowThreadSelectAsync(InteractionCreateEvent interaction, InteractionSession session)
     {
+        // ACK first (type 6, DEFERRED_UPDATE_MESSAGE) so the network fetch below does not
+        // blow past Discord's 3-second response deadline. All subsequent UI for this path
+        // is rendered by editing the original (now-deferred) response.
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token).ConfigureAwait(false);
+
         List<Channel> threads;
         try
         {
-            threads = await _channelEndpoints.GetActiveThreadsAsync(session.GuildId);
+            threads = await _channelEndpoints.GetActiveThreadsAsync(session.GuildId).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Failed to fetch active threads");
-            await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+            await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
             {
-                type = 7,
-                data = new { content = "Failed to load threads. Please try again.", components = Array.Empty<object>() }
-            });
+                content = "Failed to load threads. Please try again.",
+                components = Array.Empty<object>()
+            }).ConfigureAwait(false);
             return;
         }
 
         if (threads.Count == 0)
         {
-            await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+            await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
             {
-                type = 7,
-                data = new { content = "No active threads found in this server.", components = Array.Empty<object>() }
-            });
+                content = "No active threads found in this server.",
+                components = Array.Empty<object>()
+            }).ConfigureAwait(false);
             return;
         }
 
@@ -459,31 +536,27 @@ public sealed class MoveCommandHandler
             })
             .ToArray();
 
-        await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
         {
-            type = 7,
-            data = new
+            content = "**Select the destination thread or forum post**",
+            components = new object[]
             {
-                content = "**Select the destination thread or forum post**",
-                components = new object[]
+                new
                 {
-                    new
+                    type = 1,
+                    components = new object[]
                     {
-                        type = 1,
-                        components = new object[]
+                        new
                         {
-                            new
-                            {
-                                type = 3,
-                                custom_id = "move_dest",
-                                placeholder = "Select a thread...",
-                                options
-                            }
+                            type = 3,
+                            custom_id = ComponentId("move_dest", session.SessionId),
+                            placeholder = "Select a thread...",
+                            options
                         }
                     }
                 }
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     private static string TruncateLabel(string label)
@@ -495,19 +568,15 @@ public sealed class MoveCommandHandler
     //  Step 4: Destination select → Confirmation
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleDestinationSelectAsync(InteractionCreateEvent interaction)
+    private async Task HandleDestinationSelectAsync(InteractionCreateEvent interaction, string customId)
     {
-        var session = GetSessionOrNull(interaction);
-        if (session is null)
-        {
-            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
-            return;
-        }
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
 
         var destId = interaction.Data!.Values?[0];
         if (destId is null)
         {
-            await RespondEphemeralAsync(interaction, "No destination selected.");
+            await RespondEphemeralAsync(interaction, "No destination selected.").ConfigureAwait(false);
             return;
         }
 
@@ -547,36 +616,32 @@ public sealed class MoveCommandHandler
                         type = 1,
                         components = new object[]
                         {
-                            new { type = 2, style = 3, label = "Yes, move them!", custom_id = "move_yes", emoji = new { name = "\u2705" } },
-                            new { type = 2, style = 4, label = "Cancel", custom_id = "move_no", emoji = new { name = "\u274C" } }
+                            new { type = 2, style = 3, label = "Yes, move them!", custom_id = ComponentId("move_yes", session.SessionId), emoji = new { name = "\u2705" } },
+                            new { type = 2, style = 4, label = "Cancel", custom_id = ComponentId("move_no", session.SessionId), emoji = new { name = "\u274C" } }
                         }
                     }
                 }
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Step 5a: Confirm Yes → Execute Move
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleConfirmYesAsync(InteractionCreateEvent interaction)
+    private async Task HandleConfirmYesAsync(InteractionCreateEvent interaction, string customId)
     {
-        var session = GetSessionOrNull(interaction);
-        if (session is null)
-        {
-            await RespondEphemeralAsync(interaction, "Session expired. Please start over.");
-            return;
-        }
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
 
         if (session.DestinationId is null || session.Action is null)
         {
-            await RespondEphemeralAsync(interaction, "Missing destination or action. Please start over.");
+            await RespondEphemeralAsync(interaction, "Missing destination or action. Please start over.").ConfigureAwait(false);
             return;
         }
 
         // Defer with type 6 (DEFERRED_UPDATE_MESSAGE)
-        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token).ConfigureAwait(false);
 
         // Fetch messages based on the mode
         List<Message> messages;
@@ -584,22 +649,22 @@ public sealed class MoveCommandHandler
         {
             case -3:
                 // Thread mode: all messages from the thread
-                messages = await FetchAllMessagesChronologicalAsync(session.SourceChannelId);
+                messages = await FetchAllMessagesChronologicalAsync(session.SourceChannelId).ConfigureAwait(false);
                 break;
             case -2:
                 // Range mode: messages between start and end IDs
                 messages = await FetchMessageRangeAsync(session.SourceChannelId,
-                    session.TargetMessageId!, session.EndMessageId!);
+                    session.TargetMessageId!, session.EndMessageId!).ConfigureAwait(false);
                 break;
             case -1:
                 // "This & Below": from target to end of channel
-                messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId!);
+                messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId!).ConfigureAwait(false);
                 break;
             default:
                 // "Move This" (count = 1) or explicit count
                 if (session.TargetMessageId is not null)
                 {
-                    messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId);
+                    messages = await FetchMessagesFromAsync(session.SourceChannelId, session.TargetMessageId).ConfigureAwait(false);
                     if (messages.Count > session.MessageCount)
                         messages = messages.Take(session.MessageCount).ToList();
                 }
@@ -612,7 +677,7 @@ public sealed class MoveCommandHandler
 
         if (messages.Count == 0)
         {
-            await EditOriginalAsync(interaction.Token, "No messages found to move.");
+            await EditOriginalAsync(interaction.Token, "No messages found to move.").ConfigureAwait(false);
             return;
         }
 
@@ -620,17 +685,17 @@ public sealed class MoveCommandHandler
 
         try
         {
-            await ExecuteMoveAsync(interaction, session, messages, cts.Token);
+            await ExecuteMoveAsync(interaction, session, messages, cts.Token).ConfigureAwait(false);
         }
         catch (OperationCanceledException)
         {
             _logger.Warning("Move timed out after 10 minutes");
-            await TryEditOriginalAsync(interaction.Token, "Move timed out after 10 minutes.");
+            await TryEditOriginalAsync(interaction.Token, "Move timed out after 10 minutes.").ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Move execution failed");
-            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex));
+            await TryEditOriginalAsync(interaction.Token, SanitizeErrorMessage(ex)).ConfigureAwait(false);
         }
     }
 
@@ -647,7 +712,7 @@ public sealed class MoveCommandHandler
             case "as_thread":
             {
                 // Create a new thread in the selected channel, webhook goes in the channel
-                var newThread = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages");
+                var newThread = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages").ConfigureAwait(false);
                 webhookChannelId = destChannelId;
                 threadId = newThread.Id;
                 displayDestId = newThread.Id;
@@ -656,7 +721,7 @@ public sealed class MoveCommandHandler
             case "as_forum":
             {
                 // Create a new forum post in the selected forum channel
-                var newPost = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages");
+                var newPost = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages").ConfigureAwait(false);
                 webhookChannelId = destChannelId;
                 threadId = newPost.Id;
                 displayDestId = newPost.Id;
@@ -667,14 +732,14 @@ public sealed class MoveCommandHandler
                 // Posting into an existing thread — webhook must be in the parent channel
                 try
                 {
-                    var threadChannel = await _channelEndpoints.GetChannelAsync(destChannelId);
+                    var threadChannel = await _channelEndpoints.GetChannelAsync(destChannelId).ConfigureAwait(false);
                     webhookChannelId = threadChannel.ParentId ?? destChannelId;
                 }
                 catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
                 {
                     _logger.Warning(ex, "Destination channel {ChannelId} not found", destChannelId);
                     await TryEditOriginalAsync(interaction.Token,
-                        "\u274C Could not find the destination channel. It may have been deleted.");
+                        "\u274C Could not find the destination channel. It may have been deleted.").ConfigureAwait(false);
                     return;
                 }
 
@@ -692,27 +757,27 @@ public sealed class MoveCommandHandler
         int movedCount;
         try
         {
-            movedCount = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct);
+            movedCount = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
             _logger.Warning(ex, "Missing Manage Webhooks permission in channel {ChannelId}", webhookChannelId);
             await TryEditOriginalAsync(interaction.Token,
-                "\u274C Bot lacks **Manage Webhooks** permission in the destination channel. Please grant this permission and try again.");
+                "\u274C Bot lacks **Manage Webhooks** permission in the destination channel. Please grant this permission and try again.").ConfigureAwait(false);
             return;
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             _logger.Warning(ex, "Destination channel {ChannelId} not found during move", webhookChannelId);
             await TryEditOriginalAsync(interaction.Token,
-                "\u274C Could not find the destination channel. It may have been deleted.");
+                "\u274C Could not find the destination channel. It may have been deleted.").ConfigureAwait(false);
             return;
         }
         catch (Exception ex)
         {
             _logger.Error(ex, "Move failed for channel {ChannelId}", webhookChannelId);
             await TryEditOriginalAsync(interaction.Token,
-                $"\u274C {SanitizeErrorMessage(ex)}");
+                $"\u274C {SanitizeErrorMessage(ex)}").ConfigureAwait(false);
             return;
         }
 
@@ -723,15 +788,17 @@ public sealed class MoveCommandHandler
             await _messageEndpoints.CreateMessageAsync(
                 session.SourceChannelId,
                 $"\U0001F4E6 **{movedCount} message(s) moved to <#{displayDestId}>** by <@{userId}>",
-                ct);
+                ct).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             _logger.Warning(ex, "Failed to post move breadcrumb in source channel");
         }
 
-        // Store moved messages for potential deletion
-        session.MovedMessages = messages;
+        // Store moved message IDs for potential deletion of the originals. Only the IDs are
+        // retained on the session \u2014 the source channel is already on the session, and the
+        // 14-day bulk-delete cutoff is recomputed from each snowflake ID at delete time.
+        session.MovedMessageIds = messages.Select(m => m.Id).ToList();
 
         // Edit original with result + cleanup buttons
         await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
@@ -744,20 +811,24 @@ public sealed class MoveCommandHandler
                     type = 1,
                     components = new object[]
                     {
-                        new { type = 2, style = 4, label = "Yes, delete originals", custom_id = "move_delete", emoji = new { name = "\U0001F5D1" } },
-                        new { type = 2, style = 2, label = "No, keep originals", custom_id = "move_keep" }
+                        new { type = 2, style = 4, label = "Yes, delete originals", custom_id = ComponentId("move_delete", session.SessionId), emoji = new { name = "\U0001F5D1" } },
+                        new { type = 2, style = 2, label = "No, keep originals", custom_id = ComponentId("move_keep", session.SessionId) }
                     }
                 }
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Step 5b: Confirm No → Cancel
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleConfirmNoAsync(InteractionCreateEvent interaction)
+    private async Task HandleConfirmNoAsync(InteractionCreateEvent interaction, string customId)
     {
+        // Only the owning session may cancel; ignore stale/superseded clicks.
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
+
         CleanupSession(interaction);
 
         await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
@@ -768,17 +839,28 @@ public sealed class MoveCommandHandler
                 content = "\u274C Move cancelled.",
                 components = Array.Empty<object>()
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Step 6a: Delete originals
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleDeleteOriginalsAsync(InteractionCreateEvent interaction)
+    private async Task HandleDeleteOriginalsAsync(InteractionCreateEvent interaction, string customId)
     {
-        var session = GetSessionOrNull(interaction);
-        if (session?.MovedMessages is null || session.MovedMessages.Count == 0)
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
+
+        // Defense-in-depth for a destructive step: explicitly require the clicking user to be
+        // the user who owns this session. The keying already enforces this, but the deletion
+        // path must fail closed if it is ever reached with a mismatched user.
+        if (GetUserId(interaction) != session.UserId)
+        {
+            await TryRespondEphemeralAsync(interaction, "You can't perform this action.").ConfigureAwait(false);
+            return;
+        }
+
+        if (session.MovedMessageIds is null || session.MovedMessageIds.Count == 0)
         {
             await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
             {
@@ -788,29 +870,33 @@ public sealed class MoveCommandHandler
                     content = "No messages to delete (session may have expired).",
                     components = Array.Empty<object>()
                 }
-            });
+            }).ConfigureAwait(false);
             return;
         }
 
-        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token);
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token).ConfigureAwait(false);
 
-        var count = session.MovedMessages.Count;
-        await DeleteMessagesAsync(session.SourceChannelId, session.MovedMessages);
+        var count = session.MovedMessageIds.Count;
+        await DeleteMessagesAsync(session.SourceChannelId, session.MovedMessageIds).ConfigureAwait(false);
         CleanupSession(interaction);
 
         await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
         {
             content = $"\u2705 Moved and deleted {count} original message(s).",
             components = Array.Empty<object>()
-        });
+        }).ConfigureAwait(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
     //  Step 6b: Keep originals
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task HandleKeepOriginalsAsync(InteractionCreateEvent interaction)
+    private async Task HandleKeepOriginalsAsync(InteractionCreateEvent interaction, string customId)
     {
+        // Only the owning session may finalize; ignore stale/superseded clicks.
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
+
         CleanupSession(interaction);
 
         await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
@@ -821,7 +907,7 @@ public sealed class MoveCommandHandler
                 content = "\u2705 Done! Original messages kept.",
                 components = Array.Empty<object>()
             }
-        });
+        }).ConfigureAwait(false);
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -832,7 +918,7 @@ public sealed class MoveCommandHandler
     {
         if (messages.Count == 0) return 0;
 
-        var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move", ct);
+        var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move", ct).ConfigureAwait(false);
 
         if (string.IsNullOrEmpty(webhook.Token))
         {
@@ -868,6 +954,9 @@ public sealed class MoveCommandHandler
                     if (richEmbeds.Count == 0) richEmbeds = null;
                 }
 
+                // Defensively sanitize forwarded bot embeds (cap count, strip non-http URLs).
+                richEmbeds = EmbedSanitizer.Sanitize(richEmbeds);
+
                 // Skip messages that have no content, no attachments, and no embeds
                 var hasContent = !string.IsNullOrEmpty(content);
                 var hasFiles = uploadable.Count > 0;
@@ -886,14 +975,14 @@ public sealed class MoveCommandHandler
                         var files = new List<(byte[] Data, string Filename, string? ContentType)>();
                         foreach (var attachment in uploadable)
                         {
-                            var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, ct);
+                            var downloaded = await _attachmentHandler.DownloadAttachmentAsync(attachment, ct).ConfigureAwait(false);
                             files.Add(downloaded);
                         }
 
                         await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                             webhook.Id, webhook.Token!,
                             () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
-                            ct, threadId);
+                            ct, threadId).ConfigureAwait(false);
                     }
                     else
                     {
@@ -906,7 +995,7 @@ public sealed class MoveCommandHandler
                         };
 
                         await _webhookEndpoints.ExecuteWebhookAsync(
-                            webhook.Id, webhook.Token!, payload, ct, threadId);
+                            webhook.Id, webhook.Token!, payload, ct, threadId).ConfigureAwait(false);
                     }
 
                     moved++;
@@ -923,25 +1012,29 @@ public sealed class MoveCommandHandler
         }
         finally
         {
-            try { await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct); }
+            try { await _webhookEndpoints.DeleteWebhookAsync(webhook.Id, ct).ConfigureAwait(false); }
             catch { /* best effort */ }
         }
 
         return moved;
     }
 
-    private async Task DeleteMessagesAsync(string channelId, List<Message> messages, CancellationToken ct = default)
+    private async Task DeleteMessagesAsync(string channelId, List<string> messageIds, CancellationToken ct = default)
     {
         var fourteenDaysAgo = DateTimeOffset.UtcNow.AddDays(-14);
         var recentIds = new List<string>();
         var oldIds = new List<string>();
 
-        foreach (var msg in messages)
+        foreach (var id in messageIds)
         {
-            if (DateTimeOffset.TryParse(msg.Timestamp, out var ts) && ts > fourteenDaysAgo)
-                recentIds.Add(msg.Id);
+            // Derive the message creation time from the snowflake ID. Discord's bulk-delete
+            // endpoint only accepts messages younger than 14 days; older ones must be deleted
+            // individually.
+            var createdAt = SnowflakeToTimestamp(id);
+            if (createdAt is { } ts && ts > fourteenDaysAgo)
+                recentIds.Add(id);
             else
-                oldIds.Add(msg.Id);
+                oldIds.Add(id);
         }
 
         // Bulk delete recent messages in batches of 100
@@ -951,13 +1044,13 @@ public sealed class MoveCommandHandler
             var batch = recentIds.Skip(i).Take(100).ToList();
             if (batch.Count >= 2)
             {
-                try { await _messageEndpoints.BulkDeleteMessagesAsync(channelId, batch, ct); }
+                try { await _messageEndpoints.BulkDeleteMessagesAsync(channelId, batch, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { _logger.Warning(ex, "Bulk delete failed, falling back to individual delete"); }
             }
             else if (batch.Count == 1)
             {
-                try { await _messageEndpoints.DeleteMessageAsync(channelId, batch[0], ct); }
+                try { await _messageEndpoints.DeleteMessageAsync(channelId, batch[0], ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { throw; }
                 catch (Exception ex) { _logger.Warning(ex, "Failed to delete message {Id}", batch[0]); }
             }
@@ -967,7 +1060,7 @@ public sealed class MoveCommandHandler
         foreach (var id in oldIds)
         {
             ct.ThrowIfCancellationRequested();
-            try { await _messageEndpoints.DeleteMessageAsync(channelId, id, ct); }
+            try { await _messageEndpoints.DeleteMessageAsync(channelId, id, ct).ConfigureAwait(false); }
             catch (OperationCanceledException) { throw; }
             catch (Exception ex) { _logger.Warning(ex, "Failed to delete message {Id}", id); }
         }
@@ -984,7 +1077,7 @@ public sealed class MoveCommandHandler
 
         while (true)
         {
-            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, before: beforeId);
+            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, before: beforeId).ConfigureAwait(false);
             if (batch.Count == 0) break;
             all.AddRange(batch);
             beforeId = batch[^1].Id;
@@ -1002,7 +1095,7 @@ public sealed class MoveCommandHandler
         // Fetch the target message directly by ID
         try
         {
-            var targetMsg = await _messageEndpoints.GetMessageAsync(channelId, fromMessageId);
+            var targetMsg = await _messageEndpoints.GetMessageAsync(channelId, fromMessageId).ConfigureAwait(false);
             all.Add(targetMsg);
         }
         catch (Exception ex)
@@ -1015,7 +1108,7 @@ public sealed class MoveCommandHandler
         var afterId = fromMessageId;
         while (true)
         {
-            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, after: afterId);
+            var batch = await _messageEndpoints.GetMessagesAsync(channelId, 100, after: afterId).ConfigureAwait(false);
             if (batch.Count == 0) break;
             // Discord returns newest-first even with after=, so reverse to chronological order
             batch.Reverse();
@@ -1038,7 +1131,7 @@ public sealed class MoveCommandHandler
         // Fetch the start message
         try
         {
-            var startMsg = await _messageEndpoints.GetMessageAsync(sourceChannelId, startId);
+            var startMsg = await _messageEndpoints.GetMessageAsync(sourceChannelId, startId).ConfigureAwait(false);
             all.Add(startMsg);
         }
         catch (Exception ex)
@@ -1050,7 +1143,7 @@ public sealed class MoveCommandHandler
         var afterId = startId;
         while (true)
         {
-            var batch = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 100, after: afterId);
+            var batch = await _messageEndpoints.GetMessagesAsync(sourceChannelId, 100, after: afterId).ConfigureAwait(false);
             if (batch.Count == 0) break;
             batch.Reverse();
 
@@ -1083,6 +1176,7 @@ public sealed class MoveCommandHandler
         var key = InteractionStateStore.Key(userId, guildId);
         var session = new InteractionSession
         {
+            SessionId = Guid.NewGuid().ToString("N"),
             UserId = userId,
             GuildId = guildId,
             SourceChannelId = sourceChannelId,
@@ -1090,6 +1184,51 @@ public sealed class MoveCommandHandler
             MessageCount = messageCount
         };
         _stateStore.Set(key, session);
+        return session;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  Component custom_id helpers
+    //
+    //  Every component the flow emits carries a per-flow session nonce in its
+    //  custom_id, formatted as "{base}:{sessionId}". The base part selects the
+    //  handler; the sessionId part is validated against the looked-up session so
+    //  a click on a stale/superseded ephemeral cannot act on a newer session.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Builds a component custom_id of the form "{baseId}:{sessionId}".</summary>
+    private static string ComponentId(string baseId, string sessionId) => $"{baseId}:{sessionId}";
+
+    /// <summary>Returns the portion of a custom_id before the first ':' (the handler selector).</summary>
+    private static string ParseBaseCustomId(string customId)
+    {
+        var idx = customId.IndexOf(':');
+        return idx < 0 ? customId : customId[..idx];
+    }
+
+    /// <summary>Returns the portion of a custom_id after the first ':' (the session nonce), or null.</summary>
+    private static string? ParseSessionId(string customId)
+    {
+        var idx = customId.IndexOf(':');
+        return idx < 0 || idx == customId.Length - 1 ? null : customId[(idx + 1)..];
+    }
+
+    /// <summary>
+    /// Resolves the session for a component interaction and validates that the custom_id's
+    /// embedded session nonce matches. Returns null and replies ephemerally on mismatch/expiry.
+    /// </summary>
+    private async Task<InteractionSession?> GetValidatedSessionAsync(InteractionCreateEvent interaction, string customId)
+    {
+        var session = GetSessionOrNull(interaction);
+        var sessionId = ParseSessionId(customId);
+
+        if (session is null || sessionId is null || session.SessionId != sessionId)
+        {
+            await TryRespondEphemeralAsync(interaction,
+                "This action is from an expired or superseded step. Please start over.").ConfigureAwait(false);
+            return null;
+        }
+
         return session;
     }
 
@@ -1119,13 +1258,15 @@ public sealed class MoveCommandHandler
         return _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
         {
             type = 4,
-            data = new { content = message, flags = 64 }
+            // Defense-in-depth: suppress all mentions so any future content interpolation
+            // (error text, IDs) can never ping a user, role, or @everyone/@here.
+            data = new { content = message, flags = 64, allowed_mentions = new { parse = Array.Empty<string>() } }
         });
     }
 
     private async Task TryRespondEphemeralAsync(InteractionCreateEvent interaction, string message)
     {
-        try { await RespondEphemeralAsync(interaction, message); }
+        try { await RespondEphemeralAsync(interaction, message).ConfigureAwait(false); }
         catch (Exception ex) { _logger.Warning(ex, "Failed to send ephemeral response"); }
     }
 
@@ -1135,12 +1276,12 @@ public sealed class MoveCommandHandler
         {
             content,
             components = Array.Empty<object>()
-        });
+        }).ConfigureAwait(false);
     }
 
     private async Task TryEditOriginalAsync(string interactionToken, string content)
     {
-        try { await EditOriginalAsync(interactionToken, content); }
+        try { await EditOriginalAsync(interactionToken, content).ConfigureAwait(false); }
         catch (Exception ex) { _logger.Warning(ex, "Failed to edit interaction response"); }
     }
 
@@ -1170,8 +1311,28 @@ public sealed class MoveCommandHandler
 
     private static int CompareSnowflakes(string a, string b)
     {
-        if (ulong.TryParse(a, out var ua) && ulong.TryParse(b, out var ub))
-            return ua.CompareTo(ub);
-        return string.Compare(a, b, StringComparison.Ordinal);
+        // All IDs reaching this point are validated upstream (slash-command options are checked
+        // with Snowflake.IsValid before a session is created, and message IDs come from Discord).
+        // A non-numeric value here is therefore a programming error, not user input — fail loudly
+        // rather than silently falling back to an ordinal string compare that could mis-order IDs.
+        if (!ulong.TryParse(a, out var ua) || !ulong.TryParse(b, out var ub))
+            throw new ArgumentException($"CompareSnowflakes received a non-numeric snowflake: '{a}' / '{b}'.");
+        return ua.CompareTo(ub);
+    }
+
+    // Discord epoch (2015-01-01T00:00:00Z) in Unix milliseconds.
+    private const long DiscordEpochMs = 1420070400000L;
+
+    /// <summary>
+    /// Converts a Discord snowflake ID to its creation timestamp, or null if it cannot be parsed.
+    /// The high 42 bits of a snowflake encode milliseconds since the Discord epoch.
+    /// </summary>
+    private static DateTimeOffset? SnowflakeToTimestamp(string id)
+    {
+        if (!ulong.TryParse(id, out var snowflake))
+            return null;
+
+        var unixMs = (long)(snowflake >> 22) + DiscordEpochMs;
+        return DateTimeOffset.FromUnixTimeMilliseconds(unixMs);
     }
 }

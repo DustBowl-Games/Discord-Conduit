@@ -1,9 +1,8 @@
 # Discord Conduit
 
-<!-- Badges (update URLs once CI is configured) -->
-<!-- ![Build Status](https://github.com/DustBowl-Games/Discord-Conduit/actions/workflows/build.yml/badge.svg) -->
-<!-- ![License](https://img.shields.io/github/license/DustBowl-Games/Discord-Conduit) -->
-<!-- ![Latest Release](https://img.shields.io/github/v/release/DustBowl-Games/Discord-Conduit) -->
+[![CI](https://github.com/DustBowl-Games/Discord-Conduit/actions/workflows/ci.yml/badge.svg)](https://github.com/DustBowl-Games/Discord-Conduit/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Latest Release](https://img.shields.io/github/v/release/DustBowl-Games/Discord-Conduit)](https://github.com/DustBowl-Games/Discord-Conduit/releases)
 
 A cross-platform desktop application that migrates Discord messages between channels and threads while preserving the original poster's identity.
 
@@ -64,10 +63,14 @@ dotnet run --project src/DustBowlGames.DiscordConduit.App
 
 For detailed setup instructions including bot creation, CLI usage, and troubleshooting, see the [Setup Guide](SETUP.md).
 
+### Running as a bot service (Docker)
+
+The CLI can run the bot long-lived (`discordconduit bot start`) to serve the slash and context-menu commands. For running it as a container or deploying to Kubernetes via Helm, see the [Deployment Guide](./docs/DEPLOYMENT.md).
+
 ## License
 
 MIT License. See [LICENSE](LICENSE).
 
 ---
 
-Maintained by [DustBowl Games](https://github.com/DustBowlGames).
+Maintained by [DustBowl Games](https://github.com/DustBowl-Games).

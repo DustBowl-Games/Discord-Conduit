@@ -54,3 +54,10 @@ desktop.ini
 ## Serilog logs
 *.log
 logs/
+
+## Test results
+[Tt]est[Rr]esults/
+*.trx
+
+## Docker / Compose secrets (never commit a real token)
+.env

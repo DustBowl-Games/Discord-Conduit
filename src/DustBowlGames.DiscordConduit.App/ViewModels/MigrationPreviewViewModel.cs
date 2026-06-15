@@ -96,6 +96,8 @@ public partial class MigrationPreviewViewModel : ObservableObject
 
             var preview = await _services.Migration.PreviewAsync(CurrentOptions, CancellationToken.None);
             LoadPreview(preview);
+
+            await ValidatePermissionsAsync(source, dest, CancellationToken.None);
         }
         catch (Exception ex)
         {
@@ -105,6 +107,34 @@ public partial class MigrationPreviewViewModel : ObservableObject
         finally
         {
             IsLoading = false;
+        }
+    }
+
+    /// <summary>
+    /// Checks the bot's permissions on the source/destination channels and surfaces any
+    /// problems as warnings. Permission failures should not abort the preview, so any
+    /// exception is logged and treated as "could not verify permissions".
+    /// </summary>
+    private async Task ValidatePermissionsAsync(
+        ChannelNodeViewModel source, ChannelNodeViewModel dest, CancellationToken ct)
+    {
+        if (_services?.Validator is null) return;
+
+        try
+        {
+            var result = await _services.Validator.ValidateAsync(source.Id, dest.Id, source.GuildId, ct);
+            if (!result.IsValid)
+            {
+                foreach (var issue in result.Issues)
+                {
+                    Warnings.Add(issue.Description);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Warnings.Add("Could not verify bot permissions; the migration may fail if permissions are missing.");
+            Log.Logger.Warning(ex, "Permission validation failed during preview");
         }
     }
 

@@ -126,6 +126,26 @@ Profiles store bot tokens securely in your OS credential store. You only need to
 discordconduit profile add mybot --token YOUR_BOT_TOKEN
 ```
 
+#### Supplying the token securely
+
+Passing `--token` on the command line exposes the token in your shell history and process listings. The CLI supports two safer alternatives, used automatically when `--token` is omitted:
+
+- **Environment variable** — set `DISCORD_CONDUIT_TOKEN` and run `discordconduit profile add mybot`. The token is read from the variable.
+
+  ```bash
+  # Linux/macOS
+  DISCORD_CONDUIT_TOKEN=YOUR_BOT_TOKEN discordconduit profile add mybot
+  ```
+
+  ```powershell
+  # Windows PowerShell
+  $env:DISCORD_CONDUIT_TOKEN = "YOUR_BOT_TOKEN"; discordconduit profile add mybot
+  ```
+
+- **Interactive masked prompt** — run `discordconduit profile add mybot` with no token and no environment variable. You will be prompted to enter the token; keystrokes are masked and never echoed. (When stdin is piped, the token is read as a single line, so `echo $TOKEN | discordconduit profile add mybot` also works.)
+
+Resolution order is `--token` first, then `DISCORD_CONDUIT_TOKEN`, then the interactive prompt.
+
 Verify the profile was saved:
 
 ```bash

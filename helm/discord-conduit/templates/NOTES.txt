@@ -1,0 +1,40 @@
+Discord Conduit bot has been deployed as release "{{ .Release.Name }}".
+
+{{ if and (not .Values.token.existingSecret) (not .Values.token.value) -}}
+WARNING: No bot token was configured. The pod will fail to start until a token
+is available. Provide one of:
+
+  # Inline value (creates a chart-managed Secret):
+  helm upgrade {{ .Release.Name }} dustbowl/discord-conduit \
+    --reuse-values --set token.value=YOUR_BOT_TOKEN
+
+  # Or reference an existing Secret you created yourself:
+  kubectl create secret generic discord-conduit-token \
+    --from-literal=token=YOUR_BOT_TOKEN
+  helm upgrade {{ .Release.Name }} dustbowl/discord-conduit \
+    --reuse-values --set token.existingSecret=discord-conduit-token
+
+{{ else if .Values.token.existingSecret -}}
+The bot reads its token from the existing Secret "{{ .Values.token.existingSecret }}"
+(key "{{ include "discord-conduit.tokenSecretKey" . }}").
+{{- else -}}
+The bot reads its token from the chart-managed Secret
+"{{ include "discord-conduit.fullname" . }}" (key "token").
+{{- end }}
+
+SINGLETON WARNING
+-----------------
+This deployment runs exactly ONE replica on purpose. The Discord gateway
+connection is a singleton: a second running pod would double-handle every slash
+command. Do NOT scale this deployment above 1.
+
+VIEW LOGS
+---------
+  kubectl logs -f -l app.kubernetes.io/instance={{ .Release.Name }}
+
+CHECK STATUS
+------------
+  kubectl get pods -l app.kubernetes.io/instance={{ .Release.Name }}
+
+There is no Service or Ingress: the bot has no inbound ports. It is an outbound
+gateway/REST client only.

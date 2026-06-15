@@ -56,10 +56,19 @@ public sealed class FakeHttpHandler : HttpMessageHandler
         _sentRequests.Add(request);
 
         var url = request.RequestUri?.ToString() ?? "";
-        var route = _routes.FirstOrDefault(r =>
-            r.Method == request.Method && url.Contains(r.UrlContains, StringComparison.OrdinalIgnoreCase));
 
-        if (route is null)
+        // Match by method + URL substring (substring matching is query-string-aware, e.g.
+        // "/webhooks/{id}/{token}" matches "/webhooks/{id}/{token}?wait=true"). When several
+        // routes are registered for the same match, they are returned in registration order
+        // across successive calls (so r1, r2, r3 sequential responses work, and a 429 followed
+        // by a success is returned in that order). Once all matches are consumed, the last one
+        // is reused, so single-registration routes called many times keep working.
+        var matching = _routes
+            .Where(r => r.Method == request.Method &&
+                        url.Contains(r.UrlContains, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (matching.Count == 0)
         {
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound)
             {
@@ -67,11 +76,8 @@ public sealed class FakeHttpHandler : HttpMessageHandler
             });
         }
 
-        // Remove one-shot routes (like 429) after first match so retries get different responses
-        if (route.StatusCode == HttpStatusCode.TooManyRequests)
-        {
-            _routes.Remove(route);
-        }
+        var route = matching.FirstOrDefault(r => !r.Consumed) ?? matching[^1];
+        route.Consumed = true;
 
         var response = new HttpResponseMessage(route.StatusCode);
 
@@ -105,5 +111,9 @@ public sealed class FakeHttpHandler : HttpMessageHandler
         string UrlContains,
         HttpStatusCode StatusCode,
         object? JsonBody,
-        Dictionary<string, string>? Headers);
+        Dictionary<string, string>? Headers)
+    {
+        /// <summary>Whether this registration has already served a response (for sequential routes).</summary>
+        public bool Consumed { get; set; }
+    }
 }

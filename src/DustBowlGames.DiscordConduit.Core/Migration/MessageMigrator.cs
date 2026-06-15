@@ -70,13 +70,69 @@ public sealed class MessageMigrator
     }
 
     /// <summary>
-    /// Gets the display name to use as the webhook username for a message.
+    /// Gets the display name to use as the webhook username for a message. The source user controls
+    /// their own display name, so the value is sanitized before use: control characters,
+    /// bidirectional-override and zero-width code points are stripped, the result is trimmed and
+    /// clamped to Discord's 80-character webhook username limit, and an empty result falls back to
+    /// the author's username (then a fixed placeholder).
     /// </summary>
     /// <param name="message">The source message.</param>
-    /// <returns>The author's display name.</returns>
+    /// <returns>A sanitized webhook username, never empty.</returns>
     public string GetWebhookUsername(Message message)
     {
-        return message.Author.DisplayName;
+        var sanitized = SanitizeUsername(message.Author.DisplayName);
+        if (!string.IsNullOrWhiteSpace(sanitized))
+            return sanitized;
+
+        sanitized = SanitizeUsername(message.Author.Username);
+        if (!string.IsNullOrWhiteSpace(sanitized))
+            return sanitized;
+
+        return "unknown-user";
+    }
+
+    // Discord's webhook username limit.
+    private const int MaxWebhookUsernameLength = 80;
+
+    /// <summary>
+    /// Strips control, bidirectional-override and zero-width code points from a candidate username,
+    /// trims it, and clamps it to Discord's webhook username length limit.
+    /// </summary>
+    /// <param name="value">The raw, user-controlled name.</param>
+    /// <returns>The sanitized name, possibly empty if nothing printable remained.</returns>
+    private static string SanitizeUsername(string? value)
+    {
+        if (string.IsNullOrEmpty(value))
+            return string.Empty;
+
+        var builder = new System.Text.StringBuilder(value.Length);
+        foreach (var ch in value)
+        {
+            // Drop bidirectional-override / directional-isolate / zero-width / BOM code points.
+            //   U+200B–U+200F : ZWSP, ZWNJ, ZWJ, LRM, RLM
+            //   U+202A–U+202E : LRE, RLE, PDF, LRO, RLO
+            //   U+2066–U+2069 : LRI, RLI, FSI, PDI
+            //   U+FEFF        : BOM / ZWNBSP
+            if (ch is (>= '\u200B' and <= '\u200F')
+                or (>= '\u202A' and <= '\u202E')
+                or (>= '\u2066' and <= '\u2069')
+                or '\uFEFF')
+            {
+                continue;
+            }
+
+            // Drop any control character (also catches CR/LF/tab and other C0/C1 controls).
+            if (char.GetUnicodeCategory(ch) == System.Globalization.UnicodeCategory.Control)
+                continue;
+
+            builder.Append(ch);
+        }
+
+        var result = builder.ToString().Trim();
+        if (result.Length > MaxWebhookUsernameLength)
+            result = result[..MaxWebhookUsernameLength];
+
+        return result;
     }
 
     /// <summary>

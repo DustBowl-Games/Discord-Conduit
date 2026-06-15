@@ -39,8 +39,8 @@ public sealed class Attachment
     [JsonPropertyName("width")]
     public int? Width { get; init; }
 
-    /// <summary>8 MB — the maximum file size a bot can upload.</summary>
-    public const long MaxBotUploadSize = 8 * 1024 * 1024;
+    /// <summary>25 MB — the default maximum file size a bot can upload (Discord's non-boosted limit).</summary>
+    public const long MaxBotUploadSize = 25 * 1024 * 1024; // 25 MB — Discord's non-boosted upload limit
 
     /// <summary>Whether this attachment exceeds the bot upload size limit.</summary>
     [JsonIgnore]

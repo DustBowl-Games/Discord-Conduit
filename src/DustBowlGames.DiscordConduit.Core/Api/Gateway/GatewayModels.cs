@@ -188,6 +188,39 @@ public sealed class ResolvedData
     /// <summary>Map of message snowflake IDs to full message objects.</summary>
     [JsonPropertyName("messages")]
     public Dictionary<string, Message>? Messages { get; init; }
+
+    /// <summary>
+    /// Map of channel snowflake IDs to partial channel objects. For channel options (type 7),
+    /// each entry includes the invoking user's computed permissions in that channel.
+    /// </summary>
+    [JsonPropertyName("channels")]
+    public Dictionary<string, ResolvedChannel>? Channels { get; init; }
+}
+
+/// <summary>
+/// Partial channel object included in interaction resolved data, carrying the invoking
+/// user's computed permissions for the referenced channel.
+/// </summary>
+public sealed class ResolvedChannel
+{
+    /// <summary>The channel's snowflake ID.</summary>
+    [JsonPropertyName("id")]
+    public string? Id { get; init; }
+
+    /// <summary>The channel type.</summary>
+    [JsonPropertyName("type")]
+    public int Type { get; init; }
+
+    /// <summary>The channel's name, if applicable.</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
+
+    /// <summary>
+    /// The invoking user's computed permissions in this channel, as a stringified 64-bit
+    /// integer bitset. Null if Discord did not supply computed permissions.
+    /// </summary>
+    [JsonPropertyName("permissions")]
+    public string? Permissions { get; init; }
 }
 
 /// <summary>

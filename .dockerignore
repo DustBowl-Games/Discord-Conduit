@@ -1,0 +1,53 @@
+# Keep the Docker build context small and deterministic.
+# The build copies project files explicitly and restores inside the image, so
+# nothing local from bin/obj or tooling caches should ever be sent to the daemon.
+
+## .NET build output
+**/bin/
+**/obj/
+**/publish/
+artifacts/
+
+## Distribution / release artifacts
+releases/
+Releases/
+*.nupkg
+*.snupkg
+
+## Git & CI metadata (not needed inside the image)
+.git/
+.gitignore
+.gitattributes
+.github/
+
+## IDE / editor
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.userosscache
+*.userprefs
+
+## Docker / compose (don't recurse the build into itself)
+Dockerfile
+.dockerignore
+docker-compose.yml
+.env
+.env.example
+
+## Helm chart (not part of the image build context)
+helm/
+
+## OS noise
+.DS_Store
+Thumbs.db
+desktop.ini
+
+## Logs
+*.log
+logs/
+
+## Docs & images (not needed to build the bot)
+docs/
+*.md

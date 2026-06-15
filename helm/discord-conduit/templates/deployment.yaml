@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "discord-conduit.fullname" . }}
+  labels:
+    {{- include "discord-conduit.labels" . | nindent 4 }}
+spec:
+  # MUST stay 1 — the Discord gateway connection is a singleton. See values.yaml.
+  replicas: {{ .Values.replicaCount }}
+  # Recreate (not RollingUpdate) so a rollout never runs two gateway
+  # connections simultaneously: the old pod is torn down before the new one
+  # starts.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "discord-conduit.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "discord-conduit.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: bot
+          image: {{ include "discord-conduit.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          # Default entrypoint/cmd from the image is `dotnet discordconduit.dll bot start`.
+          env:
+            - name: DISCORD_CONDUIT_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "discord-conduit.tokenSecretName" . }}
+                  key: {{ include "discord-conduit.tokenSecretKey" . }}
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          # Writable mounts required by readOnlyRootFilesystem: true. The app
+          # persists logs + migration state under $HOME/.config (HOME=/home/conduit).
+          volumeMounts:
+            - name: data
+              mountPath: /home/conduit/.config
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          emptyDir: {}
+        - name: tmp
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

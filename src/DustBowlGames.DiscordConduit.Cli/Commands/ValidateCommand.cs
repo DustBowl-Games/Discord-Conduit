@@ -37,7 +37,7 @@ internal static class ValidateCommand
             if (token is null)
             {
                 Console.Error.WriteLine($"Profile '{profileName}' not found or has no token.");
-                return;
+                return 1;
             }
 
             var logger = Log.Logger;
@@ -56,19 +56,20 @@ internal static class ValidateCommand
             if (checkResult.IsValid)
             {
                 Console.WriteLine("Validation passed. All required permissions are present.");
+                return 0;
             }
-            else
-            {
-                Console.WriteLine($"Validation failed with {checkResult.Issues.Count} issue(s):");
-                Console.WriteLine();
 
-                foreach (var issue in checkResult.Issues)
-                {
-                    Console.WriteLine($"  [{issue.Channel.ToUpperInvariant()}] {issue.Permission}");
-                    Console.WriteLine($"    {issue.Description}");
-                    Console.WriteLine();
-                }
+            Console.Error.WriteLine($"Validation failed with {checkResult.Issues.Count} issue(s):");
+            Console.Error.WriteLine();
+
+            foreach (var issue in checkResult.Issues)
+            {
+                Console.Error.WriteLine($"  [{issue.Channel.ToUpperInvariant()}] {issue.Permission}");
+                Console.Error.WriteLine($"    {issue.Description}");
+                Console.Error.WriteLine();
             }
+
+            return 1;
         });
 
         return command;

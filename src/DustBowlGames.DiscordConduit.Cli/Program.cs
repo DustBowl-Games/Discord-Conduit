@@ -9,11 +9,10 @@ internal sealed class Program
 {
     static async Task<int> Main(string[] args)
     {
-        var appDataPath = Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DiscordConduit");
-
-        Directory.CreateDirectory(appDataPath);
+        var appDataPath = DustBowlGames.DiscordConduit.Core.IO.SecurePaths.CreateOwnerOnlyDirectory(
+            Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+                "DiscordConduit"));
 
         Log.Logger = new LoggerConfiguration()
             .MinimumLevel.Debug()

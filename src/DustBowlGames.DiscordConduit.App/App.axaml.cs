@@ -45,9 +45,29 @@ public partial class App : Application
                 DataContext = new MainWindowViewModel(_services)
             };
 
+            // Tracks whether the async ShutdownRequested path already disposed the
+            // services, so the synchronous Exit fallback doesn't double-dispose.
+            var disposed = false;
+
+            // ShutdownRequested fires before Exit and lets us run the async disconnect
+            // off the UI synchronization context, avoiding a deadlock on exit.
+            desktop.ShutdownRequested += (_, _) =>
+            {
+                if (_services is not null && !disposed)
+                {
+                    disposed = true;
+                    Task.Run(async () => await _services.DisposeAsync()).GetAwaiter().GetResult();
+                }
+            };
+
             desktop.Exit += (_, _) =>
             {
-                _services.Dispose();
+                if (_services is not null && !disposed)
+                {
+                    disposed = true;
+                    // Safe synchronous fallback (offloads off the UI context internally).
+                    _services.Dispose();
+                }
                 Log.CloseAndFlush();
             };
         }

@@ -109,4 +109,61 @@ public class AttachmentHandlerTests
         Assert.Contains("msg", json);
         Assert.Contains("Bot", json);
     }
+
+    // --- Security: SSRF host allowlist ---
+
+    [Theory]
+    [InlineData("https://evil.example.com/x.txt")]
+    [InlineData("https://cdn.discordapp.com.evil.com/x.txt")] // lookalike: ends with .evil.com
+    [InlineData("https://notdiscordapp.com/x.txt")]           // no leading-dot subdomain match
+    [InlineData("http://127.0.0.1/x.txt")]
+    public async Task DownloadAttachmentAsync_NonDiscordHost_ThrowsBeforeNetwork(string url)
+    {
+        var attachment = new Attachment { Id = "1", Filename = "f.txt", Size = 10, Url = url };
+
+        // The host allowlist is checked before any network call, so this fails fast.
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => _handler.DownloadAttachmentAsync(attachment, CancellationToken.None));
+    }
+
+    // --- Security: mention-injection suppression ---
+
+    [Fact]
+    public async Task CreateMultipartContent_SuppressesAllMentions()
+    {
+        var files = new List<(byte[] Data, string Filename, string? ContentType)>
+        {
+            (new byte[] { 0 }, "f.bin", null)
+        };
+
+        var result = _handler.CreateMultipartContent("@everyone @here hi", "User", null, null, files);
+
+        var payloadPart = result.ToList().First(c =>
+            c.Headers.ContentDisposition?.Name?.Trim('"') == "payload_json");
+        var json = await payloadPart.ReadAsStringAsync();
+
+        // allowed_mentions with an empty parse array disables @everyone/@here/role/user pings.
+        Assert.Contains("allowed_mentions", json);
+        Assert.Matches("\"parse\"\\s*:\\s*\\[\\s*\\]", json);
+    }
+
+    // --- Security: filename header injection (CRLF) ---
+
+    [Fact]
+    public void CreateMultipartContent_SanitizesFilenameCrlfAndQuotes()
+    {
+        var files = new List<(byte[] Data, string Filename, string? ContentType)>
+        {
+            (new byte[] { 1 }, "a\r\nb\"c.png", "image/png")
+        };
+
+        var result = _handler.CreateMultipartContent(null, null, null, null, files);
+
+        var filePart = result.ToList().First(c =>
+            c.Headers.ContentDisposition?.Name?.Trim('"') == "files[0]");
+        var fileName = filePart.Headers.ContentDisposition?.FileName ?? "";
+
+        Assert.DoesNotContain("\r", fileName);
+        Assert.DoesNotContain("\n", fileName);
+    }
 }
