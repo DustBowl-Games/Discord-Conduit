@@ -44,10 +44,9 @@ public sealed class AppServices : IDisposable, IAsyncDisposable
 
     public AppServices()
     {
-        AppDataPath = Path.Combine(
+        AppDataPath = Core.IO.SecurePaths.CreateOwnerOnlyDirectory(Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-            "DiscordConduit");
-        Directory.CreateDirectory(AppDataPath);
+            "DiscordConduit"));
 
         CredentialStore = CredentialStoreFactory.Create();
         ProfileManager = new ProfileManager(CredentialStore, AppDataPath);

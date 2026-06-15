@@ -42,9 +42,7 @@ public sealed class AttachmentHandler
             attachment.Filename, attachment.Size, attachment.Url);
 
         var uri = new Uri(attachment.Url);
-        if (!uri.Host.EndsWith(".discordapp.com", StringComparison.OrdinalIgnoreCase) &&
-            !uri.Host.EndsWith(".discord.com", StringComparison.OrdinalIgnoreCase) &&
-            !uri.Host.EndsWith(".discordapp.net", StringComparison.OrdinalIgnoreCase))
+        if (!IsAllowedDiscordCdnHost(uri.Host))
         {
             _logger.Warning("Skipping attachment with non-Discord URL host: {Host}", uri.Host);
             throw new InvalidOperationException($"Attachment URL is not from a Discord CDN host: {uri.Host}");
@@ -56,6 +54,18 @@ public sealed class AttachmentHandler
 
         using var response = await _httpClient.GetAsync(
             attachment.Url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
+
+        // Re-validate the FINAL request URI host. HttpClient follows redirects by default, and the
+        // initial allowlist check only covers the original URL — a 3xx redirect could otherwise send
+        // the request (and our read) to an arbitrary host. Reject any redirect that left the allowlist.
+        var finalHost = response.RequestMessage?.RequestUri?.Host;
+        if (finalHost is not null && !IsAllowedDiscordCdnHost(finalHost))
+        {
+            _logger.Warning("Attachment download redirected to a non-Discord host: {Host}", finalHost);
+            throw new InvalidOperationException(
+                $"Attachment download redirected off the Discord CDN allowlist to: {finalHost}");
+        }
+
         response.EnsureSuccessStatusCode();
 
         // Reject early if the server advertises a body larger than the cap.
@@ -97,6 +107,12 @@ public sealed class AttachmentHandler
 
         return (data, attachment.Filename, contentType);
     }
+
+    /// <summary>Returns true if the host belongs to Discord's CDN allowlist.</summary>
+    private static bool IsAllowedDiscordCdnHost(string host) =>
+        host.EndsWith(".discordapp.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".discord.com", StringComparison.OrdinalIgnoreCase) ||
+        host.EndsWith(".discordapp.net", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Checks whether an attachment exceeds the 25 MB bot upload size limit.
