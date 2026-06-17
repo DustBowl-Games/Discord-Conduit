@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Channel & category cloning: `discordconduit clone` creates the destination
+  channel(s) and migrates messages in one step, including across servers
+  (`--dest-guild`; `--category` to clone a whole category). Plain `migrate` also
+  works cross-server.
 - Channel export: `discordconduit export` archives a channel to HTML, JSON, CSV,
   or plain text (read-only — nothing is posted), with the same filter flags as
   `migrate`.
