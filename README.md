@@ -27,6 +27,7 @@ Discord Conduit re-posts messages from a source channel or thread to a destinati
 - **Reply references** — reply chains include a snippet of the referenced message
 - **Resumable migrations** — state persisted after each message, resume interrupted migrations
 - **Dry-run mode** — validate the entire pipeline without posting
+- **Channel export** — archive a channel to HTML, JSON, CSV, or plain text (read-only, with the same filters)
 - **Progress tracking** — live progress bar, ETA, pause/resume, cancel
 - **CLI companion** — run migrations from the command line
 
