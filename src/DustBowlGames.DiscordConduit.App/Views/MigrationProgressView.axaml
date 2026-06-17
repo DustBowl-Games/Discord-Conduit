@@ -74,7 +74,8 @@
                     <TextBlock Text="Failed" FontSize="12" Opacity="0.7"
                                HorizontalAlignment="Center" />
                 </StackPanel>
-                <StackPanel Grid.Column="3" HorizontalAlignment="Center">
+                <StackPanel Grid.Column="3" HorizontalAlignment="Center"
+                            ToolTip.Tip="System messages (joins, pins, boosts) that can't be migrated.">
                     <TextBlock Text="{Binding Skipped}" FontSize="24" FontWeight="Bold"
                                Foreground="Orange"
                                HorizontalAlignment="Center" />

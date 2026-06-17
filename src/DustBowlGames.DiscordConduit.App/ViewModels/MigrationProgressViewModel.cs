@@ -136,7 +136,8 @@ public partial class MigrationProgressViewModel : ObservableObject
             Result = await _services.Migration.RunAsync(options, progress, _cts.Token, _pauseSource.Token);
             IsComplete = true;
             Phase = "Complete";
-            SummaryText = $"Migrated {Result.TotalMigrated} messages, {Result.TotalFailed} failed, {Result.TotalSkipped} skipped in {Result.Duration:hh\\:mm\\:ss}";
+            var skippedNote = Result.TotalSkipped > 0 ? " (skipped = system messages)" : string.Empty;
+            SummaryText = $"Migrated {Result.TotalMigrated} messages, {Result.TotalFailed} failed, {Result.TotalSkipped} skipped in {Result.Duration:hh\\:mm\\:ss}{skippedNote}";
             Log.Logger.Information("Migration completed: {Summary}", SummaryText);
         }
         catch (OperationCanceledException)

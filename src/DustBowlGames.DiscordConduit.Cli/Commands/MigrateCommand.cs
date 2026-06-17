@@ -89,8 +89,15 @@ internal static class MigrateCommand
 
             Console.WriteLine();
 
-            if (dryRun) Console.WriteLine("Running in dry-run mode...");
-            else Console.WriteLine("Starting migration...");
+            if (dryRun)
+            {
+                Console.WriteLine("Running in dry-run mode...");
+                Console.WriteLine("  Note: the time estimate and ETA reflect a real migration, not this near-instant dry run.");
+            }
+            else
+            {
+                Console.WriteLine("Starting migration...");
+            }
 
             // Run with progress
             var progress = new Progress<MigrationProgress>(p =>
@@ -109,7 +116,9 @@ internal static class MigrateCommand
             Console.WriteLine("Migration complete.");
             Console.WriteLine($"  Migrated: {migrationResult.TotalMigrated}");
             Console.WriteLine($"  Failed:   {migrationResult.TotalFailed}");
-            Console.WriteLine($"  Skipped:  {migrationResult.TotalSkipped}");
+            Console.WriteLine(migrationResult.TotalSkipped > 0
+                ? $"  Skipped:  {migrationResult.TotalSkipped}  (system messages: joins, pins, etc.)"
+                : $"  Skipped:  {migrationResult.TotalSkipped}");
             Console.WriteLine($"  Duration: {migrationResult.Duration:hh\\:mm\\:ss}");
 
             if (migrationResult.FailedMessages.Count > 0)
@@ -188,7 +197,9 @@ internal static class MigrateCommand
             Console.WriteLine("Migration complete.");
             Console.WriteLine($"  Migrated: {migrationResult.TotalMigrated}");
             Console.WriteLine($"  Failed:   {migrationResult.TotalFailed}");
-            Console.WriteLine($"  Skipped:  {migrationResult.TotalSkipped}");
+            Console.WriteLine(migrationResult.TotalSkipped > 0
+                ? $"  Skipped:  {migrationResult.TotalSkipped}  (system messages: joins, pins, etc.)"
+                : $"  Skipped:  {migrationResult.TotalSkipped}");
             Console.WriteLine($"  Duration: {migrationResult.Duration:hh\\:mm\\:ss}");
 
             if (migrationResult.FailedMessages.Count > 0)

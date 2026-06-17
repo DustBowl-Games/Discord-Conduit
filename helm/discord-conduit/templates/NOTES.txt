@@ -5,13 +5,13 @@ WARNING: No bot token was configured. The pod will fail to start until a token
 is available. Provide one of:
 
   # Inline value (creates a chart-managed Secret):
-  helm upgrade {{ .Release.Name }} dustbowl/discord-conduit \
+  helm upgrade {{ .Release.Name }} ./helm/discord-conduit \
     --reuse-values --set token.value=YOUR_BOT_TOKEN
 
   # Or reference an existing Secret you created yourself:
   kubectl create secret generic discord-conduit-token \
     --from-literal=token=YOUR_BOT_TOKEN
-  helm upgrade {{ .Release.Name }} dustbowl/discord-conduit \
+  helm upgrade {{ .Release.Name }} ./helm/discord-conduit \
     --reuse-values --set token.existingSecret=discord-conduit-token
 
 {{ else if .Values.token.existingSecret -}}

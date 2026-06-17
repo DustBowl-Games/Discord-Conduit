@@ -110,7 +110,8 @@ public sealed class MigrationEngine
 
         if (oversizedAttachments.Count > 0)
         {
-            warnings.Add($"{oversizedAttachments.Count} attachment(s) exceed the 25 MB bot upload limit and will be skipped.");
+            var limitMb = Attachment.MaxBotUploadSize / (1024 * 1024);
+            warnings.Add($"{oversizedAttachments.Count} attachment(s) exceed the {limitMb} MB bot upload limit and will be skipped.");
         }
 
         if (stickerMessageCount > 0)

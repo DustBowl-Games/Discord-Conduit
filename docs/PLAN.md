@@ -6,6 +6,8 @@ Discord Conduit is a new cross-platform desktop application that migrates Discor
 
 The repo is empty. This plan covers solution structure, architecture, Core API design, state management, rate limiting, testing, CI/CD, packaging, and a vertical-slice build order.
 
+> **Note:** The 8 MB attachment limit referenced throughout this plan was later raised to a fixed 25 MB cap (see CHANGELOG).
+
 ---
 
 ## 1. Solution & Project Structure
@@ -281,6 +283,8 @@ DiscordRestClient
 ---
 
 ## 6. Packaging & Distribution
+
+> **Planned / not implemented in v1.** The Velopack auto-update and installer approach described below was **deferred and never built** for v1. Releases are currently plain self-contained `dotnet publish` builds per RID, packaged as `.tar.gz` archives and attached to GitHub Releases — there is no auto-update, no installer, and no Velopack dependency. The content below is retained as historical design context.
 
 ### Velopack
 

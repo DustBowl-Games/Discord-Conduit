@@ -121,7 +121,8 @@ public sealed class AttachmentHandler
     /// <returns><c>true</c> if the attachment is too large to re-upload; otherwise <c>false</c>.</returns>
     public bool IsOversized(Attachment attachment)
     {
-        return attachment.Size > Attachment.MaxBotUploadSize;
+        // Delegate to the model so the size rule lives in exactly one place.
+        return attachment.IsOversized;
     }
 
     /// <summary>

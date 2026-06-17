@@ -250,7 +250,7 @@ public sealed class MoveCommandHandler
         }
 
         var session = CreateSession(interaction, interaction.ChannelId, targetId, messageCount: 1);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "This command only works inside a server, not in DMs. Try again from a server channel.").ConfigureAwait(false); return; }
 
         await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
@@ -266,7 +266,7 @@ public sealed class MoveCommandHandler
 
         // -1 = all from target downward
         var session = CreateSession(interaction, interaction.ChannelId, targetId, messageCount: -1);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "This command only works inside a server, not in DMs. Try again from a server channel.").ConfigureAwait(false); return; }
 
         await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
@@ -300,7 +300,7 @@ public sealed class MoveCommandHandler
 
         // -2 = range mode (use TargetMessageId as start, EndMessageId as end)
         var session = CreateSession(interaction, interaction.ChannelId, startId, messageCount: -2);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "This command only works inside a server, not in DMs. Try again from a server channel.").ConfigureAwait(false); return; }
         session.EndMessageId = endId;
 
         await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
@@ -343,7 +343,7 @@ public sealed class MoveCommandHandler
 
         // -3 = thread mode (move all messages from this thread)
         var session = CreateSession(interaction, threadId, targetMessageId: null, messageCount: -3);
-        if (session is null) { await RespondEphemeralAsync(interaction, "Could not identify user or guild.").ConfigureAwait(false); return; }
+        if (session is null) { await RespondEphemeralAsync(interaction, "This command only works inside a server, not in DMs. Try again from a server channel.").ConfigureAwait(false); return; }
 
         await RespondWithActionSelectAsync(interaction, session).ConfigureAwait(false);
     }
@@ -381,7 +381,7 @@ public sealed class MoveCommandHandler
             type = 4,
             data = new
             {
-                content = "**What would you like to do with these messages?**",
+                content = "**What would you like to do?**",
                 flags = 64,
                 components = new object[]
                 {
@@ -399,8 +399,8 @@ public sealed class MoveCommandHandler
                                 {
                                     new { label = "Repost into a channel", value = "channel", description = "Move messages to an existing channel", emoji = new { name = "\U0001F4E2" } },
                                     new { label = "Repost into a thread/forum", value = "thread", description = "Move messages to an existing thread or forum post", emoji = new { name = "\U0001F9F5" } },
-                                    new { label = "Repost as a thread", value = "as_thread", description = "Create a new thread and move messages into it", emoji = new { name = "\U0001F195" } },
-                                    new { label = "Repost as a forum post", value = "as_forum", description = "Create a new forum post and move messages into it", emoji = new { name = "\U0001F4CB" } }
+                                    new { label = "Repost as a new thread", value = "as_thread", description = "Create a new thread and move messages into it", emoji = new { name = "\U0001F195" } },
+                                    new { label = "Repost as a new forum post", value = "as_forum", description = "Create a new forum post and move messages into it", emoji = new { name = "\U0001F4CB" } }
                                 }
                             }
                         }
@@ -590,12 +590,14 @@ public sealed class MoveCommandHandler
             _ => session.MessageCount.ToString()
         };
 
+        // Keep these phrases identical to the action-select option labels so the wording for the
+        // chosen action doesn't change between the select step and this confirmation step.
         var actionDisplay = session.Action switch
         {
-            "channel" => "Repost into channel",
-            "thread" => "Repost into thread/forum",
-            "as_thread" => "Create new thread in channel",
-            "as_forum" => "Create new forum post in channel",
+            "channel" => "Repost into a channel",
+            "thread" => "Repost into a thread/forum",
+            "as_thread" => "Repost as a new thread",
+            "as_forum" => "Repost as a new forum post",
             _ => session.Action ?? "unknown"
         };
 
@@ -711,8 +713,8 @@ public sealed class MoveCommandHandler
         {
             case "as_thread":
             {
-                // Create a new thread in the selected channel, webhook goes in the channel
-                var newThread = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages").ConfigureAwait(false);
+                // Create a new thread in the selected text channel; the webhook goes in the channel.
+                var newThread = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages", ct).ConfigureAwait(false);
                 webhookChannelId = destChannelId;
                 threadId = newThread.Id;
                 displayDestId = newThread.Id;
@@ -720,8 +722,10 @@ public sealed class MoveCommandHandler
             }
             case "as_forum":
             {
-                // Create a new forum post in the selected forum channel
-                var newPost = await _channelEndpoints.CreateThreadAsync(destChannelId, "Moved Messages").ConfigureAwait(false);
+                // Create a new forum post in the selected forum channel. Forum threads require an
+                // initial message, so create the post with a starter; migrated messages follow via webhook.
+                var newPost = await _channelEndpoints.CreateForumPostAsync(
+                    destChannelId, "Moved Messages", "\U0001F4E6 Migrated messages", ct).ConfigureAwait(false);
                 webhookChannelId = destChannelId;
                 threadId = newPost.Id;
                 displayDestId = newPost.Id;
@@ -754,10 +758,10 @@ public sealed class MoveCommandHandler
                 break;
         }
 
-        int movedCount;
+        List<string> movedIds;
         try
         {
-            movedCount = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct).ConfigureAwait(false);
+            movedIds = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
@@ -781,6 +785,8 @@ public sealed class MoveCommandHandler
             return;
         }
 
+        var movedCount = movedIds.Count;
+
         // Leave a breadcrumb in the source channel
         try
         {
@@ -798,7 +804,7 @@ public sealed class MoveCommandHandler
         // Store moved message IDs for potential deletion of the originals. Only the IDs are
         // retained on the session \u2014 the source channel is already on the session, and the
         // 14-day bulk-delete cutoff is recomputed from each snowflake ID at delete time.
-        session.MovedMessageIds = messages.Select(m => m.Id).ToList();
+        session.MovedMessageIds = movedIds;
 
         // Edit original with result + cleanup buttons
         await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
@@ -914,9 +920,14 @@ public sealed class MoveCommandHandler
     //  Message moving logic
     // ─────────────────────────────────────────────────────────────────────────
 
-    private async Task<int> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null, CancellationToken ct = default)
+    /// <summary>
+    /// Reposts the given messages via a temporary webhook and returns the source IDs that were
+    /// actually reposted (system, empty, and failed messages are excluded), so the caller can
+    /// safely offer to delete only the originals that were genuinely migrated.
+    /// </summary>
+    private async Task<List<string>> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null, CancellationToken ct = default)
     {
-        if (messages.Count == 0) return 0;
+        if (messages.Count == 0) return new List<string>();
 
         var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move", ct).ConfigureAwait(false);
 
@@ -925,7 +936,7 @@ public sealed class MoveCommandHandler
             throw new InvalidOperationException("Failed to create webhook \u2014 missing token. Check bot permissions.");
         }
 
-        var moved = 0;
+        var movedIds = new List<string>();
 
         try
         {
@@ -998,7 +1009,7 @@ public sealed class MoveCommandHandler
                             webhook.Id, webhook.Token!, payload, ct, threadId).ConfigureAwait(false);
                     }
 
-                    moved++;
+                    movedIds.Add(message.Id);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1016,7 +1027,7 @@ public sealed class MoveCommandHandler
             catch { /* best effort */ }
         }
 
-        return moved;
+        return movedIds;
     }
 
     private async Task DeleteMessagesAsync(string channelId, List<string> messageIds, CancellationToken ct = default)

@@ -41,7 +41,6 @@ Follow these steps to create a bot application and invite it to your server.
 2. Click **Add Bot** and confirm.
 3. Under **Privileged Gateway Intents**, enable:
    - **Message Content Intent** -- required to read message content for migration
-   - **Server Members Intent** -- enable this if you plan to use member-related features
 4. Click **Save Changes**.
 
 ### Step 3: Copy Your Bot Token
@@ -85,11 +84,11 @@ Follow these steps to create a bot application and invite it to your server.
 
 Download the latest release for your platform from the [GitHub Releases](https://github.com/DustBowl-Games/Discord-Conduit/releases) page:
 
-- **Windows**: `DiscordConduit-win-x64.zip`
-- **macOS**: `DiscordConduit-osx-x64.zip` (Intel) or `DiscordConduit-osx-arm64.zip` (Apple Silicon)
-- **Linux**: `DiscordConduit-linux-x64.zip`
+- **Windows**: `discord-conduit-win-x64.tar.gz`
+- **macOS**: `discord-conduit-osx-x64.tar.gz` (Intel) or `discord-conduit-osx-arm64.tar.gz` (Apple Silicon)
+- **Linux**: `discord-conduit-linux-x64.tar.gz`
 
-Extract the archive and run the executable.
+Extract the `.tar.gz` tarball and run the executable.
 
 ### Build from Source
 
@@ -160,7 +159,9 @@ Before running a migration, verify the bot has the required permissions in both 
 discordconduit validate --profile mybot --source SOURCE_CHANNEL_ID --dest DEST_CHANNEL_ID --guild GUILD_ID
 ```
 
-This checks for View Channels, Read Message History, Send Messages, Manage Webhooks, and Add Reactions in both the source and destination channels.
+This checks Read Message History on the source channel, and View Channel, Manage Webhooks, and Send Messages on the destination channel (the latter verified by creating and using a test webhook).
+
+> **Note:** Add Reactions is required for reaction migration but is not verified by `validate`.
 
 ### 3. Run a Migration
 
@@ -196,6 +197,8 @@ discordconduit bot start --profile mybot
 ```
 
 The bot connects to Discord's gateway, registers its commands, and listens for interactions. Press Ctrl+C to stop.
+
+For headless or container use where the OS credential store is unavailable, `bot start` can also read the token from the `DISCORD_CONDUIT_TOKEN` environment variable or from a `--token-file <path>` (for example, a mounted Kubernetes secret) instead of `--profile`. See the [Deployment Guide](docs/DEPLOYMENT.md) for details.
 
 ---
 
@@ -300,7 +303,7 @@ Log files rotate daily and the last 7 days are retained.
 - **Polls and button components are not preserved.** These interactive elements cannot be reproduced via webhook.
 - **Pin status is not migrated.** Pinned messages in the source channel are not automatically pinned in the destination.
 - **Reactions are added as the bot.** Discord's API does not allow adding reactions on behalf of other users, so all migrated reactions show the bot as the reactor.
-- **Attachment size limits.** Files larger than the server's upload limit (based on boost level) are skipped and listed as warnings in the preview.
+- **Attachment size limit.** Files larger than 25 MB are skipped and listed as warnings in the preview. Discord Conduit uses a fixed 25 MB cap and does not raise it for boosted servers.
 
 ---
 
