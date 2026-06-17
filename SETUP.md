@@ -198,7 +198,19 @@ discordconduit migrate resume STATE_FILE --profile mybot
 
 Migration state files are saved to the migrations directory (see [Data Storage](#data-storage)) after each message is posted.
 
-### 5. Start the Bot for Slash Commands
+### 5. Export a Channel to a File
+
+Export (archive) a channel's messages to a file without posting anything:
+
+```bash
+discordconduit export --profile mybot --channel CHANNEL_ID --format html --output archive.html
+```
+
+**Formats:** `html` (styled, human-readable; the default), `json` (structured, machine-readable), `csv` (tabular), `txt` (plain text). If `--output` is omitted, the file is named `export-<channel>.<ext>`.
+
+The export accepts the same filter flags as `migrate` (`--from-author`, `--since`, `--until`, `--contains`, `--attachments-only`, `--no-bots`), so you can archive just a subset. Attachment links reference Discord's CDN (note: these URLs expire over time).
+
+### 6. Start the Bot for Slash Commands
 
 To enable the interactive slash commands (Move This, Move This & Below, /move-range, /move-thread):
 

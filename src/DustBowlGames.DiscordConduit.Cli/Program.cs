@@ -31,6 +31,7 @@ internal sealed class Program
 
             rootCommand.Subcommands.Add(ProfileCommand.Create(appDataPath));
             rootCommand.Subcommands.Add(MigrateCommand.Create(appDataPath));
+            rootCommand.Subcommands.Add(ExportCommand.Create(appDataPath));
             rootCommand.Subcommands.Add(ValidateCommand.Create(appDataPath));
             rootCommand.Subcommands.Add(BotCommand.Create(appDataPath));
 

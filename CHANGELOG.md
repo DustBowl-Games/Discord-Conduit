@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Channel export: `discordconduit export` archives a channel to HTML, JSON, CSV,
+  or plain text (read-only — nothing is posted), with the same filter flags as
+  `migrate`.
 - Message filtering: migrate a subset by author (`--from-author`), date range
   (`--since`/`--until`), keyword (`--contains`), attachments-only
   (`--attachments-only`), or excluding bots (`--no-bots`).
