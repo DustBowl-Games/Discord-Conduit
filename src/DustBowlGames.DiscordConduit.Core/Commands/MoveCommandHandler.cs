@@ -724,8 +724,10 @@ public sealed class MoveCommandHandler
             {
                 // Create a new forum post in the selected forum channel. Forum threads require an
                 // initial message, so create the post with a starter; migrated messages follow via webhook.
+                // If the source is itself a forum post, carry its tags across (mapped by name).
+                var appliedTags = await MapForumTagsAsync(session.SourceChannelId, destChannelId, ct).ConfigureAwait(false);
                 var newPost = await _channelEndpoints.CreateForumPostAsync(
-                    destChannelId, "Moved Messages", "\U0001F4E6 Migrated messages", ct).ConfigureAwait(false);
+                    destChannelId, "Moved Messages", "\U0001F4E6 Migrated messages", appliedTags, ct).ConfigureAwait(false);
                 webhookChannelId = destChannelId;
                 threadId = newPost.Id;
                 displayDestId = newPost.Id;
@@ -921,6 +923,43 @@ public sealed class MoveCommandHandler
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// When moving into a forum, maps the source forum post's tags to the destination forum's tags
+    /// by name, returning the destination tag IDs to apply (max 5). Returns an empty list when the
+    /// source isn't a tagged forum post or no tag names line up. Best-effort; never throws.
+    /// </summary>
+    private async Task<List<string>> MapForumTagsAsync(string sourceChannelId, string destForumChannelId, CancellationToken ct)
+    {
+        try
+        {
+            var source = await _channelEndpoints.GetChannelAsync(sourceChannelId, ct).ConfigureAwait(false);
+            if (source.AppliedTags is not { Count: > 0 } || source.ParentId is null)
+                return [];
+
+            // Resolve the source applied-tag IDs to names via the source's parent forum.
+            var sourceForum = await _channelEndpoints.GetChannelAsync(source.ParentId, ct).ConfigureAwait(false);
+            var names = (sourceForum.AvailableTags ?? [])
+                .Where(t => t.Name is not null && source.AppliedTags.Contains(t.Id))
+                .Select(t => t.Name!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (names.Count == 0)
+                return [];
+
+            // Map the names to the destination forum's tag IDs.
+            var dest = await _channelEndpoints.GetChannelAsync(destForumChannelId, ct).ConfigureAwait(false);
+            return (dest.AvailableTags ?? [])
+                .Where(t => t.Name is not null && names.Contains(t.Name))
+                .Select(t => t.Id)
+                .Take(5)
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _logger.Warning(ex, "Failed to map forum tags from {Source} to {Dest}", sourceChannelId, destForumChannelId);
+            return [];
+        }
+    }
+
+    /// <summary>
     /// Reposts the given messages via a temporary webhook and returns the source IDs that were
     /// actually reposted (system, empty, and failed messages are excluded), so the caller can
     /// safely offer to delete only the originals that were genuinely migrated.
@@ -968,12 +1007,15 @@ public sealed class MoveCommandHandler
                 // Defensively sanitize forwarded bot embeds (cap count, strip non-http URLs).
                 richEmbeds = EmbedSanitizer.Sanitize(richEmbeds);
 
-                // Skip messages that have no content, no attachments, and no embeds
+                // Re-create an attached poll if present (votes/original timing can't be carried over).
+                var poll = message.Poll?.ToCreateRequest();
+
+                // Skip messages that have no content, no attachments, no embeds, and no poll
                 var hasContent = !string.IsNullOrEmpty(content);
                 var hasFiles = uploadable.Count > 0;
                 var hasEmbeds = richEmbeds is { Count: > 0 };
 
-                if (!hasContent && !hasFiles && !hasEmbeds)
+                if (!hasContent && !hasFiles && !hasEmbeds && poll is null)
                 {
                     _logger.Debug("Skipping empty message {MessageId}", message.Id);
                     continue;
@@ -992,7 +1034,7 @@ public sealed class MoveCommandHandler
 
                         await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                             webhook.Id, webhook.Token!,
-                            () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
+                            () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files, poll),
                             ct, threadId).ConfigureAwait(false);
                     }
                     else
@@ -1002,7 +1044,8 @@ public sealed class MoveCommandHandler
                             Content = content,
                             Username = username,
                             AvatarUrl = avatarUrl,
-                            Embeds = richEmbeds
+                            Embeds = richEmbeds,
+                            Poll = poll
                         };
 
                         await _webhookEndpoints.ExecuteWebhookAsync(

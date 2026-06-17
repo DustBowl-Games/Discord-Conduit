@@ -20,6 +20,10 @@ Discord Conduit re-posts messages from a source channel or thread to a destinati
 - **Message migration** — re-post messages via webhook with original author identity preserved
 - **Attachment re-upload** — download and re-upload files (Discord CDN links expire)
 - **Reaction migration** — best-effort reaction preservation (added as bot, not original users)
+- **Pin preservation** — messages pinned in the source are re-pinned in the destination
+- **Poll migration** — polls are re-created (question and answers; votes restart)
+- **Forum tag mapping** — moving a forum post to another forum carries its tags across (matched by name)
+- **Message filtering** — migrate a subset by author, date range, keyword, attachments-only, or excluding bots
 - **Reply references** — reply chains include a snippet of the referenced message
 - **Resumable migrations** — state persisted after each message, resume interrupted migrations
 - **Dry-run mode** — validate the entire pipeline without posting

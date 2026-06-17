@@ -173,10 +173,20 @@ The CLI will display a preview (message count, attachment sizes, warnings) and t
 
 **Options:**
 
-| Flag              | Description                              |
-|-------------------|------------------------------------------|
-| `--dry-run`       | Validate the entire pipeline without posting any messages |
-| `--no-reactions`  | Skip reaction migration                  |
+| Flag                 | Description                              |
+|----------------------|------------------------------------------|
+| `--dry-run`          | Validate the entire pipeline without posting any messages |
+| `--no-reactions`     | Skip reaction migration                  |
+| `--no-pins`          | Don't re-pin messages that were pinned in the source |
+| `--no-polls`         | Don't re-create polls attached to messages |
+| `--from-author <id>` | Only migrate messages from this author (user ID) |
+| `--since <date>`     | Only migrate messages on/after this date/time (e.g. `2024-01-01` or `2024-01-01T12:00:00Z`) |
+| `--until <date>`     | Only migrate messages on/before this date/time |
+| `--contains <text>`  | Only migrate messages whose text contains this (case-insensitive) |
+| `--attachments-only` | Only migrate messages that have attachments |
+| `--no-bots`          | Exclude messages authored by bots        |
+
+Filters combine with AND — e.g. `--from-author 123 --since 2024-06-01 --attachments-only` migrates only that user's attachment messages from June onward. The preview message count reflects the filtered set.
 
 ### 4. Resume an Interrupted Migration
 
@@ -300,8 +310,9 @@ Log files rotate daily and the last 7 days are retained.
 - **Original timestamps are not preserved.** Migrated messages show the time they were re-posted, not the original send time. This is a Discord API limitation.
 - **Messages appear as webhook/app messages.** While the original author's username and avatar are spoofed via webhook, the messages show an "APP" tag. They are not true messages from the original user.
 - **Webhook avatar spoofing may not work in all cases.** If the original author's avatar URL is expired or inaccessible, the webhook falls back to the default avatar.
-- **Polls and button components are not preserved.** These interactive elements cannot be reproduced via webhook.
-- **Pin status is not migrated.** Pinned messages in the source channel are not automatically pinned in the destination.
+- **Polls are re-created fresh.** A migrated poll keeps its question and answers, but votes and the original end time are not carried over (the API doesn't allow it) — the poll restarts with a new duration.
+- **Button/select components are not preserved.** Interactive components have no backing handler in the destination, so they are not reproduced.
+- **Pins have a 50-pin channel cap.** Pinned source messages are re-pinned in the destination, but Discord limits a channel to 50 pins; any beyond that are skipped (and logged).
 - **Reactions are added as the bot.** Discord's API does not allow adding reactions on behalf of other users, so all migrated reactions show the bot as the reactor.
 - **Attachment size limit.** Files larger than 25 MB are skipped and listed as warnings in the preview. Discord Conduit uses a fixed 25 MB cap and does not raise it for boosted servers.
 

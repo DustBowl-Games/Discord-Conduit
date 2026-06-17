@@ -133,13 +133,15 @@ public sealed class AttachmentHandler
     /// <param name="avatarUrl">The avatar URL to use for the webhook message, or <c>null</c>.</param>
     /// <param name="embeds">Embeds to include in the message, or <c>null</c>.</param>
     /// <param name="files">The files to attach, each with data, filename, and optional content type.</param>
+    /// <param name="poll">An optional poll-create request object to attach, or <c>null</c>.</param>
     /// <returns>A <see cref="MultipartFormDataContent"/> ready for posting to the webhook endpoint.</returns>
     public MultipartFormDataContent CreateMultipartContent(
         string? content,
         string? username,
         string? avatarUrl,
         List<Embed>? embeds,
-        List<(byte[] Data, string Filename, string? ContentType)> files)
+        List<(byte[] Data, string Filename, string? ContentType)> files,
+        object? poll = null)
     {
         var multipart = new MultipartFormDataContent();
 
@@ -156,6 +158,9 @@ public sealed class AttachmentHandler
 
         if (embeds is { Count: > 0 })
             payload["embeds"] = embeds;
+
+        if (poll is not null)
+            payload["poll"] = poll;
 
         // Suppress all mentions to prevent @everyone/@here injection via migrated content
         payload["allowed_mentions"] = new { parse = Array.Empty<string>() };

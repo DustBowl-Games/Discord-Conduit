@@ -35,6 +35,14 @@ public sealed class Channel
     [JsonPropertyName("last_message_id")]
     public string? LastMessageId { get; init; }
 
+    /// <summary>For forum/media channels, the set of tags that can be applied to posts.</summary>
+    [JsonPropertyName("available_tags")]
+    public List<ForumTag>? AvailableTags { get; init; }
+
+    /// <summary>For a forum/media post (thread), the IDs of the tags applied to it.</summary>
+    [JsonPropertyName("applied_tags")]
+    public List<string>? AppliedTags { get; init; }
+
     /// <summary>Whether this channel is a thread type.</summary>
     [JsonIgnore]
     public bool IsThread => Type is 10 or 11 or 12;
@@ -42,4 +50,20 @@ public sealed class Channel
     /// <summary>Whether this channel is a text-based channel that can contain messages.</summary>
     [JsonIgnore]
     public bool IsTextChannel => Type is 0 or 5;
+
+    /// <summary>Whether this channel is a forum or media channel.</summary>
+    [JsonIgnore]
+    public bool IsForum => Type is 15 or 16;
+}
+
+/// <summary>A tag that can be applied to posts in a forum or media channel.</summary>
+public sealed class ForumTag
+{
+    /// <summary>The tag's snowflake ID.</summary>
+    [JsonPropertyName("id")]
+    public required string Id { get; init; }
+
+    /// <summary>The tag's name.</summary>
+    [JsonPropertyName("name")]
+    public string? Name { get; init; }
 }
