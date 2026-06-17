@@ -684,7 +684,7 @@ public sealed class DiscordGatewayClient : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="url">The candidate gateway URL.</param>
     /// <returns><c>true</c> if the URL is a well-formed Discord gateway endpoint.</returns>
-    private static bool IsValidGatewayUrl(string? url)
+    internal static bool IsValidGatewayUrl(string? url)
     {
         if (string.IsNullOrWhiteSpace(url))
             return false;

@@ -10,7 +10,7 @@ A cross-platform desktop application that migrates Discord messages between chan
 
 ## What it does
 
-Discord Conduit re-posts messages from a source channel or thread to a destination channel or thread using webhooks, spoofing the original author's username and avatar so migrated messages look like the original poster sent them. Attachments are re-uploaded (not linked), and reactions are preserved.
+Discord Conduit re-posts messages from a source channel or thread to a destination channel or thread via webhooks using the original author's username and avatar, so migrated messages keep the original poster's identity. Attachments are re-uploaded (not linked), and reactions are preserved.
 
 ## Features
 

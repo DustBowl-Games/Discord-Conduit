@@ -34,8 +34,15 @@ public sealed class MessageMigrator
             return null;
 
         var referenced = message.ReferencedMessage;
-        var author = referenced.Author.DisplayName;
-        var preview = referenced.Content ?? string.Empty;
+
+        // The referenced author name is user-controlled — sanitize it the same way as the webhook
+        // username so a bidi-override / zero-width name can't corrupt the quoted reply line.
+        var author = SanitizeUsername(referenced.Author.DisplayName);
+        if (string.IsNullOrWhiteSpace(author))
+            author = "unknown-user";
+
+        // Collapse line endings so a multi-line referenced message stays a single-line quote.
+        var preview = (referenced.Content ?? string.Empty).ReplaceLineEndings(" ");
 
         if (preview.Length > 100)
             preview = preview[..100] + "...";

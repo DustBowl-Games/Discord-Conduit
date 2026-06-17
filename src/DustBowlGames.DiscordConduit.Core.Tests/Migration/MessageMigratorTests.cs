@@ -75,7 +75,7 @@ public class MessageMigratorTests
         var result = _migrator.BuildReplyReference(message, _emptyMap);
 
         Assert.NotNull(result);
-        Assert.Equal("\u21a9 replying to @DisplayUser: \"original content\"", result);
+        Assert.Equal("↩ replying to @DisplayUser: \"original content\"", result);
     }
 
     [Fact]
@@ -105,6 +105,47 @@ public class MessageMigratorTests
         Assert.Contains("\"\"", result);
     }
 
+    [Fact]
+    public void BuildReplyReference_AuthorNameWithControlAndBidiChars_StripsThem()
+    {
+        // Display name laced with a zero-width space, an RLO bidi override, a BOM and a control
+        // char. Built from numeric escapes so the test is unaffected by source-file encoding.
+        const char zwsp = '​'; // zero-width space
+        const char rlo = '‮';  // right-to-left override
+        const char bom = '﻿';  // BOM / ZWNBSP
+        const char bell = ''; // C0 control
+        var rawName = $"Ev{zwsp}il{rlo}user{bom}{bell}";
+        var refAuthor = CreateUser(globalName: rawName);
+        var refMessage = CreateMessage(id: "50", author: refAuthor, content: "hi");
+        var message = CreateMessage(type: 19, referencedMessage: refMessage,
+            messageReference: new MessageReference { MessageId = "50" });
+
+        var result = _migrator.BuildReplyReference(message, _emptyMap);
+
+        Assert.NotNull(result);
+        Assert.Equal("↩ replying to @Eviluser: \"hi\"", result);
+        // None of the stripped code points may survive in the output line.
+        Assert.DoesNotContain(zwsp, result);
+        Assert.DoesNotContain(rlo, result);
+        Assert.DoesNotContain(bom, result);
+        Assert.DoesNotContain(bell, result);
+    }
+
+    [Fact]
+    public void BuildReplyReference_MultiLineContent_ProducesSingleLineQuote()
+    {
+        var refMessage = CreateMessage(id: "50", content: "line1\nline2");
+        var message = CreateMessage(type: 19, referencedMessage: refMessage,
+            messageReference: new MessageReference { MessageId = "50" });
+
+        var result = _migrator.BuildReplyReference(message, _emptyMap);
+
+        Assert.NotNull(result);
+        // The newline must be collapsed so the reply reference stays on a single line.
+        Assert.DoesNotContain('\n', result);
+        Assert.Equal("↩ replying to @testuser: \"line1 line2\"", result);
+    }
+
     // --- BuildWebhookContent ---
 
     [Fact]
@@ -121,7 +162,7 @@ public class MessageMigratorTests
     public void BuildWebhookContent_WithReplyAndContent_CombinesWithNewline()
     {
         var message = CreateMessage(content: "my reply");
-        var reply = "\u21a9 replying to @User: \"original\"";
+        var reply = "↩ replying to @User: \"original\"";
 
         var result = _migrator.BuildWebhookContent(message, reply);
 
@@ -132,7 +173,7 @@ public class MessageMigratorTests
     public void BuildWebhookContent_WithReplyButNullContent_ReturnsReplyOnly()
     {
         var message = CreateMessage(content: null);
-        var reply = "\u21a9 replying to @User: \"original\"";
+        var reply = "↩ replying to @User: \"original\"";
 
         var result = _migrator.BuildWebhookContent(message, reply);
 
@@ -143,7 +184,7 @@ public class MessageMigratorTests
     public void BuildWebhookContent_WithReplyButEmptyContent_ReturnsReplyOnly()
     {
         var message = CreateMessage(content: "");
-        var reply = "\u21a9 replying to @User: \"original\"";
+        var reply = "↩ replying to @User: \"original\"";
 
         var result = _migrator.BuildWebhookContent(message, reply);
 

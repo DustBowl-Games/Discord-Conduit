@@ -23,7 +23,7 @@ dotnet test
 - API DTOs live in `Core/Api/Models/` and use `System.Text.Json` with `[JsonPropertyName]` attributes.
 - No Discord.Net or DSharpPlus — raw REST only.
 - Bot tokens stored in OS credential store, never plaintext.
-- Branding: "Discord Conduit" in user-facing copy. "DustBowl Games" only in LICENSE, README footer, About dialog.
+- Branding: "Discord Conduit" in user-facing copy. "DustBowl Games" only in LICENSE and README footer.
 
 ## Bot commands
 

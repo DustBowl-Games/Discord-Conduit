@@ -76,7 +76,7 @@ public partial class MainWindowViewModel : ObservableObject
 
         StatusMessage = view switch
         {
-            "Profiles" => IsConnected ? "Connected. Manage bot profiles." : "Select a bot profile to get started.",
+            "Profiles" => IsConnected ? "Connected. Browse channels to set up a migration." : "Select a bot profile to get started.",
             "Browser" => "Select a source and destination channel.",
             "Preview" => "Review migration details before starting.",
             "Migration" => "Monitor migration progress.",

@@ -55,6 +55,32 @@ public sealed class ChannelEndpoints
     }
 
     /// <summary>
+    /// Creates a new forum (or media) post in a forum channel. Unlike a text-channel thread,
+    /// Discord requires forum/media threads to be created with an initial message, so a starter
+    /// message is posted together with the thread (the migrated messages follow via webhook).
+    /// </summary>
+    /// <param name="channelId">The forum channel's snowflake ID.</param>
+    /// <param name="name">The title of the forum post.</param>
+    /// <param name="starterContent">The content of the mandatory starter message.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The created forum-post thread channel.</returns>
+    public Task<Channel> CreateForumPostAsync(string channelId, string name, string starterContent, CancellationToken ct = default)
+    {
+        return _client.PostJsonAsync<Channel>(
+            $"/channels/{channelId}/threads",
+            new
+            {
+                name,
+                message = new
+                {
+                    content = starterContent,
+                    allowed_mentions = new { parse = Array.Empty<string>() },
+                },
+            },
+            ct);
+    }
+
+    /// <summary>
     /// Internal response wrapper for the active threads endpoint.
     /// </summary>
     internal sealed class ActiveThreadsResponse

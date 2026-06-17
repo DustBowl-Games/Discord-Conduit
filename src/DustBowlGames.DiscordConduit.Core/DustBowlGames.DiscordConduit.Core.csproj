@@ -9,7 +9,7 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
 
-  <!-- NuGet packaging metadata (Core is published as a package). -->
+  <!-- NuGet packaging metadata: in place for future NuGet publication (not yet published). -->
   <PropertyGroup>
     <PackageId>DustBowlGames.DiscordConduit.Core</PackageId>
     <Description>Core library for Discord Conduit — migrate Discord messages between channels and threads via webhooks, preserving original author identity. Raw Discord REST, rate limiting, resumable migrations.</Description>
@@ -31,6 +31,12 @@
   <!-- Pack the repo README so PackageReadmeFile resolves. -->
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
+  </ItemGroup>
+
+  <!-- Expose internals to the test project so internal helpers (EmbedSanitizer,
+       IsValidGatewayUrl, etc.) can be unit-tested directly. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="DustBowlGames.DiscordConduit.Core.Tests" />
   </ItemGroup>
 
 </Project>

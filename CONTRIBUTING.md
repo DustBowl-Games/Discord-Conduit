@@ -47,7 +47,7 @@ See [SETUP.md](SETUP.md) for the full CLI reference and how to create a bot.
 
 | Project | Purpose |
 |---------|---------|
-| `DustBowlGames.DiscordConduit.Core` | All Discord logic. Zero UI dependencies. Published as a NuGet package. |
+| `DustBowlGames.DiscordConduit.Core` | All Discord logic. Zero UI dependencies. Packaged for future NuGet publication (metadata is in place; not yet published). |
 | `DustBowlGames.DiscordConduit.App` | Avalonia desktop UI (FluentAvalonia, CommunityToolkit.Mvvm). |
 | `DustBowlGames.DiscordConduit.Cli` | CLI companion (System.CommandLine). |
 | `DustBowlGames.DiscordConduit.Core.Tests` | xUnit tests for Core. |
@@ -61,7 +61,7 @@ See [SETUP.md](SETUP.md) for the full CLI reference and how to create a bot.
 - **API DTOs** live in `Core/Api/Models/` and use `System.Text.Json` with `[JsonPropertyName]` attributes.
 - **XML doc comments are required on public Core types.** Core builds with `TreatWarningsAsErrors` + `GenerateDocumentationFile`, so a missing doc comment fails the build.
 - **Secrets are stored in the OS credential store**, never in plaintext files. Never log tokens.
-- **Branding:** use "Discord Conduit" in user-facing copy. "DustBowl Games" appears only in the LICENSE, README footer, and About dialog.
+- **Branding:** use "Discord Conduit" in user-facing copy. "DustBowl Games" appears only in the LICENSE and README footer.
 
 Shared MSBuild properties (version, authors, repository URL, deterministic build settings) live in the root `Directory.Build.props`. Per-project settings (`TreatWarningsAsErrors`, `Nullable`, `OutputType`) stay in each `.csproj`.
 
