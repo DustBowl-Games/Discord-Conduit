@@ -43,6 +43,14 @@ public sealed class Message
     [JsonPropertyName("reactions")]
     public List<Reaction>? Reactions { get; init; }
 
+    /// <summary>Whether this message is pinned in its channel.</summary>
+    [JsonPropertyName("pinned")]
+    public bool Pinned { get; init; }
+
+    /// <summary>A poll attached to this message, if any.</summary>
+    [JsonPropertyName("poll")]
+    public Poll? Poll { get; init; }
+
     /// <summary>If this message is a reply, the referenced message data.</summary>
     [JsonPropertyName("referenced_message")]
     public Message? ReferencedMessage { get; init; }

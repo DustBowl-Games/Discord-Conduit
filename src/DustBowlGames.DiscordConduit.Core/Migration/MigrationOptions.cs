@@ -8,9 +8,15 @@ namespace DustBowlGames.DiscordConduit.Core.Migration;
 /// <param name="GuildId">The snowflake ID of the guild (server) containing the channels.</param>
 /// <param name="DryRun">When <c>true</c>, simulates the migration without sending any messages.</param>
 /// <param name="IncludeReactions">When <c>true</c>, migrates reactions on each message after sending.</param>
+/// <param name="IncludePins">When <c>true</c>, re-pins migrated messages that were pinned in the source.</param>
+/// <param name="IncludePolls">When <c>true</c>, re-creates polls attached to migrated messages.</param>
+/// <param name="Filter">Optional criteria limiting which messages are migrated. Defaults to all messages.</param>
 public sealed record MigrationOptions(
     string SourceChannelId,
     string DestinationChannelId,
     string GuildId,
     bool DryRun = false,
-    bool IncludeReactions = true);
+    bool IncludeReactions = true,
+    bool IncludePins = true,
+    bool IncludePolls = true,
+    MessageFilter? Filter = null);

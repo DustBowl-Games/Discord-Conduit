@@ -12,9 +12,20 @@ public sealed class FakeHttpHandler : HttpMessageHandler
 {
     private readonly List<Route> _routes = [];
     private readonly List<HttpRequestMessage> _sentRequests = [];
+    private readonly List<SentRequest> _sentRequestsWithBody = [];
 
     /// <summary>All requests that were sent through this handler.</summary>
     public IReadOnlyList<HttpRequestMessage> SentRequests => _sentRequests;
+
+    /// <summary>
+    /// All requests that were sent through this handler, paired with their request body captured at
+    /// send time. (The body is read here because <see cref="HttpClient"/> disposes request content
+    /// after sending, so it is no longer readable from <see cref="SentRequests"/> afterwards.)
+    /// </summary>
+    public IReadOnlyList<SentRequest> SentRequestsWithBody => _sentRequestsWithBody;
+
+    /// <summary>A captured request and its body string (empty when the request had no content).</summary>
+    public sealed record SentRequest(HttpMethod Method, string Url, string Body);
 
     /// <summary>
     /// Registers a response for requests matching the given method and URL substring.
@@ -56,6 +67,18 @@ public sealed class FakeHttpHandler : HttpMessageHandler
         _sentRequests.Add(request);
 
         var url = request.RequestUri?.ToString() ?? "";
+
+        // Capture the request body now — HttpClient disposes request content after the send returns,
+        // so reading it later from SentRequests would fail. Reading synchronously here is safe for
+        // the buffered JsonContent/StringContent the production code uses; any read failure is
+        // swallowed so body capture can never affect a test that does not inspect bodies.
+        string body = "";
+        if (request.Content is not null)
+        {
+            try { body = request.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult(); }
+            catch { /* leave body empty if the content cannot be read as a string */ }
+        }
+        _sentRequestsWithBody.Add(new SentRequest(request.Method, url, body));
 
         // Match by method + URL substring (substring matching is query-string-aware, e.g.
         // "/webhooks/{id}/{token}" matches "/webhooks/{id}/{token}?wait=true"). When several

@@ -20,6 +20,14 @@ internal static class MigrateCommand
         var guildOption = new Option<string>("--guild") { Description = "Guild (server) ID", Required = true };
         var dryRunOption = new Option<bool>("--dry-run") { Description = "Validate without posting" };
         var noReactionsOption = new Option<bool>("--no-reactions") { Description = "Skip reaction migration" };
+        var noPinsOption = new Option<bool>("--no-pins") { Description = "Don't re-pin messages that were pinned in the source" };
+        var noPollsOption = new Option<bool>("--no-polls") { Description = "Don't re-create polls attached to messages" };
+        var fromAuthorOption = new Option<string?>("--from-author") { Description = "Only migrate messages from this author (user ID)" };
+        var sinceOption = new Option<string?>("--since") { Description = "Only migrate messages on/after this date/time (e.g. 2024-01-01 or 2024-01-01T12:00:00Z)" };
+        var untilOption = new Option<string?>("--until") { Description = "Only migrate messages on/before this date/time" };
+        var containsOption = new Option<string?>("--contains") { Description = "Only migrate messages whose text contains this (case-insensitive)" };
+        var attachmentsOnlyOption = new Option<bool>("--attachments-only") { Description = "Only migrate messages that have attachments" };
+        var noBotsOption = new Option<bool>("--no-bots") { Description = "Exclude messages authored by bots" };
 
         command.Options.Add(profileOption);
         command.Options.Add(sourceOption);
@@ -27,6 +35,14 @@ internal static class MigrateCommand
         command.Options.Add(guildOption);
         command.Options.Add(dryRunOption);
         command.Options.Add(noReactionsOption);
+        command.Options.Add(noPinsOption);
+        command.Options.Add(noPollsOption);
+        command.Options.Add(fromAuthorOption);
+        command.Options.Add(sinceOption);
+        command.Options.Add(untilOption);
+        command.Options.Add(containsOption);
+        command.Options.Add(attachmentsOnlyOption);
+        command.Options.Add(noBotsOption);
 
         command.SetAction(async (result, ct) =>
         {
@@ -61,12 +77,50 @@ internal static class MigrateCommand
                 appDataPath,
                 logger);
 
+            // Parse optional date filters (UTC assumed when no offset is given).
+            DateTimeOffset? since = null;
+            var sinceRaw = result.GetValue(sinceOption);
+            if (!string.IsNullOrWhiteSpace(sinceRaw))
+            {
+                if (!DateTimeOffset.TryParse(sinceRaw, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var s))
+                {
+                    Console.Error.WriteLine($"Invalid --since value: '{sinceRaw}'. Use e.g. 2024-01-01 or 2024-01-01T12:00:00Z.");
+                    return 1;
+                }
+                since = s;
+            }
+
+            DateTimeOffset? until = null;
+            var untilRaw = result.GetValue(untilOption);
+            if (!string.IsNullOrWhiteSpace(untilRaw))
+            {
+                if (!DateTimeOffset.TryParse(untilRaw, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out var u))
+                {
+                    Console.Error.WriteLine($"Invalid --until value: '{untilRaw}'. Use e.g. 2024-01-01 or 2024-01-01T12:00:00Z.");
+                    return 1;
+                }
+                until = u;
+            }
+
+            var filter = new MessageFilter(
+                AuthorId: result.GetValue(fromAuthorOption),
+                Since: since,
+                Until: until,
+                ContentContains: result.GetValue(containsOption),
+                AttachmentsOnly: result.GetValue(attachmentsOnlyOption),
+                ExcludeBots: result.GetValue(noBotsOption));
+
             var options = new MigrationOptions(
                 SourceChannelId: source,
                 DestinationChannelId: dest,
                 GuildId: guild,
                 DryRun: dryRun,
-                IncludeReactions: !noReactions);
+                IncludeReactions: !noReactions,
+                IncludePins: !result.GetValue(noPinsOption),
+                IncludePolls: !result.GetValue(noPollsOption),
+                Filter: filter.IsActive ? filter : null);
 
             // Preview
             Console.WriteLine("Analyzing source channel...");

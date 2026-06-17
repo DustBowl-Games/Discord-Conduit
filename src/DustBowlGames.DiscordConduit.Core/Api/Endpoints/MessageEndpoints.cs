@@ -67,6 +67,17 @@ public sealed class MessageEndpoints
     }
 
     /// <summary>
+    /// Pins a message in a channel. Requires the MANAGE_MESSAGES permission.
+    /// </summary>
+    /// <param name="channelId">The channel's snowflake ID.</param>
+    /// <param name="messageId">The message's snowflake ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    public Task PinMessageAsync(string channelId, string messageId, CancellationToken ct = default)
+    {
+        return _client.PutAsync($"/channels/{channelId}/pins/{messageId}", ct);
+    }
+
+    /// <summary>
     /// Sends a message to a channel.
     /// </summary>
     /// <param name="channelId">The channel's snowflake ID.</param>

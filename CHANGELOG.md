@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Message filtering: migrate a subset by author (`--from-author`), date range
+  (`--since`/`--until`), keyword (`--contains`), attachments-only
+  (`--attachments-only`), or excluding bots (`--no-bots`).
+- Pin preservation: messages pinned in the source are re-pinned in the
+  destination (`--no-pins` to skip).
+- Poll migration: polls are re-created with their question and answers
+  (votes/timing restart; `--no-polls` to skip).
+- Forum tag mapping: moving a forum post to another forum carries its tags
+  across, matched by name.
 - Docker image and Helm chart for running the CLI bot mode as a long-lived service.
 - `discordconduit bot start` can read the token from the `DISCORD_CONDUIT_TOKEN`
   environment variable or a `--token-file` (for container/Kubernetes secrets).

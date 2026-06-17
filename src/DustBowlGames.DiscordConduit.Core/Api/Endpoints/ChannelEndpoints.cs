@@ -62,15 +62,17 @@ public sealed class ChannelEndpoints
     /// <param name="channelId">The forum channel's snowflake ID.</param>
     /// <param name="name">The title of the forum post.</param>
     /// <param name="starterContent">The content of the mandatory starter message.</param>
+    /// <param name="appliedTags">Optional forum tag IDs to apply to the post (Discord allows up to 5).</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>The created forum-post thread channel.</returns>
-    public Task<Channel> CreateForumPostAsync(string channelId, string name, string starterContent, CancellationToken ct = default)
+    public Task<Channel> CreateForumPostAsync(string channelId, string name, string starterContent, IReadOnlyList<string>? appliedTags = null, CancellationToken ct = default)
     {
         return _client.PostJsonAsync<Channel>(
             $"/channels/{channelId}/threads",
             new
             {
                 name,
+                applied_tags = appliedTags is { Count: > 0 } ? appliedTags : null,
                 message = new
                 {
                     content = starterContent,

@@ -66,6 +66,7 @@ public sealed class MigrationEngine
         _logger.Information("Starting migration preview for channel {SourceChannelId}", options.SourceChannelId);
 
         var allMessages = await FetchAllMessagesDescendingAsync(options.SourceChannelId, ct).ConfigureAwait(false);
+        allMessages = ApplyFilter(allMessages, options.Filter, _logger);
 
         var messageCount = allMessages.Count;
         var attachmentCount = 0;
@@ -224,6 +225,7 @@ public sealed class MigrationEngine
         {
             // Fetch all messages and process in chronological order
             var allMessages = await FetchAllMessagesChronologicalAsync(options.SourceChannelId, ct).ConfigureAwait(false);
+            allMessages = ApplyFilter(allMessages, options.Filter, migrationLogger);
             state.TotalMessageCount = allMessages.Count;
 
             await state.SaveAsync(_appDataPath).ConfigureAwait(false);
@@ -342,6 +344,8 @@ public sealed class MigrationEngine
             {
                 remainingMessages = await FetchAllMessagesChronologicalAsync(state.SourceChannelId, ct).ConfigureAwait(false);
             }
+
+            remainingMessages = ApplyFilter(remainingMessages, state.Options.Filter, migrationLogger);
 
             state.TotalMessageCount = state.MigratedCount + remainingMessages.Count;
             state.Phase = MigrationPhase.MigratingMessages;
@@ -466,6 +470,12 @@ public sealed class MigrationEngine
             await MigrateReactionsAsync(state, allMessagesForReactions ?? messages, ct).ConfigureAwait(false);
         }
 
+        // Pin migration phase — re-pin messages that were pinned in the source channel.
+        if (state.Options.IncludePins && !state.Options.DryRun)
+        {
+            await MigratePinsAsync(state, allMessagesForReactions ?? messages, ct).ConfigureAwait(false);
+        }
+
         // Finalize
         state.Phase = MigrationPhase.Complete;
         await state.SaveAsync(_appDataPath).ConfigureAwait(false);
@@ -538,6 +548,9 @@ public sealed class MigrationEngine
         // Defensively sanitize forwarded bot embeds (cap count, strip non-http URLs).
         richEmbeds = EmbedSanitizer.Sanitize(richEmbeds);
 
+        // Re-create an attached poll if present and enabled (votes/original timing can't be carried over).
+        var poll = state.Options.IncludePolls ? message.Poll?.ToCreateRequest() : null;
+
         if (state.Options.DryRun)
         {
             _logger.Information("[DRY RUN] Would migrate message {MessageId} by {Author}: {Preview}",
@@ -552,7 +565,8 @@ public sealed class MigrationEngine
         // Discord with a 400. Skip such messages rather than failing the whole send.
         if (string.IsNullOrWhiteSpace(content)
             && uploadableAttachments.Count == 0
-            && richEmbeds is not { Count: > 0 })
+            && richEmbeds is not { Count: > 0 }
+            && poll is null)
         {
             _logger.Warning(
                 "Skipping message {MessageId}: no migratable content (empty text, no uploadable attachments, no rich embeds)",
@@ -581,7 +595,7 @@ public sealed class MigrationEngine
 
             repostedMessage = await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                 webhook.Id, webhook.Token!,
-                () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files),
+                () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files, poll),
                 ct).ConfigureAwait(false);
         }
         else
@@ -592,7 +606,8 @@ public sealed class MigrationEngine
                 Content = content,
                 Username = username,
                 AvatarUrl = avatarUrl,
-                Embeds = richEmbeds
+                Embeds = richEmbeds,
+                Poll = poll
             };
 
             repostedMessage = await _webhookEndpoints.ExecuteWebhookAsync(
@@ -660,6 +675,59 @@ public sealed class MigrationEngine
         }
 
         _logger.Information("Reaction migration phase complete");
+    }
+
+    /// <summary>
+    /// Applies the optional message filter, returning only matching messages and logging how many
+    /// were excluded so the effect is visible.
+    /// </summary>
+    private static List<Message> ApplyFilter(List<Message> messages, MessageFilter? filter, ILogger logger)
+    {
+        if (filter is null || !filter.IsActive)
+            return messages;
+
+        var filtered = messages.Where(filter.Matches).ToList();
+        logger.Information("Message filter applied: {Kept} of {Total} messages match the criteria",
+            filtered.Count, messages.Count);
+        return filtered;
+    }
+
+    /// <summary>
+    /// Re-pins migrated messages whose source message was pinned, after posting so the destination
+    /// message IDs are known. Best-effort: per-pin failures (e.g. Discord's 50-pin channel limit)
+    /// are logged and skipped. Messages are pinned in chronological order so pin ordering roughly
+    /// matches the source.
+    /// </summary>
+    private async Task MigratePinsAsync(MigrationState state, List<Message> sourceMessages, CancellationToken ct)
+    {
+        _logger.Information("Starting pin migration phase");
+
+        foreach (var message in sourceMessages)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            if (!message.Pinned)
+                continue;
+
+            if (!state.MessageIdMap.TryGetValue(message.Id, out var repostedMessageId))
+                continue;
+
+            try
+            {
+                await _messageEndpoints.PinMessageAsync(state.DestinationChannelId, repostedMessageId, ct).ConfigureAwait(false);
+                _logger.Debug("Pinned migrated message {MessageId}", repostedMessageId);
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                _logger.Warning(ex, "Failed to pin migrated message {MessageId}", repostedMessageId);
+            }
+        }
+
+        _logger.Information("Pin migration phase complete");
     }
 
     /// <summary>
