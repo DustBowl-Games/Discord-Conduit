@@ -179,6 +179,8 @@ The CLI will display a preview (message count, attachment sizes, warnings) and t
 | `--no-reactions`     | Skip reaction migration                  |
 | `--no-pins`          | Don't re-pin messages that were pinned in the source |
 | `--no-polls`         | Don't re-create polls attached to messages |
+| `--no-stickers`      | Don't post sticker images when a message has stickers |
+| `--timestamps`       | Append each message's original send time as a footer |
 | `--from-author <id>` | Only migrate messages from this author (user ID) |
 | `--since <date>`     | Only migrate messages on/after this date/time (e.g. `2024-01-01` or `2024-01-01T12:00:00Z`) |
 | `--until <date>`     | Only migrate messages on/before this date/time |
@@ -338,7 +340,8 @@ Log files rotate daily and the last 7 days are retained.
 
 ## Known Limitations
 
-- **Stickers cannot be migrated.** Discord's webhook API does not support sending stickers. The preview warns about messages containing stickers.
+- **Stickers are re-posted as images.** Webhooks can't send stickers, so PNG/APNG/GIF stickers are posted as their image instead (`--no-stickers` to disable). Animated **Lottie** stickers have no static image and can't be migrated.
+- **Voice messages migrate as audio attachments.** The voice clip is re-uploaded as a normal audio file (the waveform/voice-message UI is not reproduced via webhook).
 - **Original timestamps are not preserved.** Migrated messages show the time they were re-posted, not the original send time. This is a Discord API limitation.
 - **Messages appear as webhook/app messages.** While the original author's username and avatar are spoofed via webhook, the messages show an "APP" tag. They are not true messages from the original user.
 - **Webhook avatar spoofing may not work in all cases.** If the original author's avatar URL is expired or inaccessible, the webhook falls back to the default avatar.

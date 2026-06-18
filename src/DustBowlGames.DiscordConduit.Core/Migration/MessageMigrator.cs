@@ -58,8 +58,11 @@ public sealed class MessageMigrator
     /// </summary>
     /// <param name="message">The source message.</param>
     /// <param name="replyReference">The reply reference string, or <c>null</c>.</param>
+    /// <param name="includeStickers">When <c>true</c>, appends image URLs for any PNG/APNG/GIF
+    /// stickers (webhooks can't send stickers; Discord embeds the image URL).</param>
+    /// <param name="includeTimestamp">When <c>true</c>, appends the original send time as subtext.</param>
     /// <returns>The combined content string for the webhook message.</returns>
-    public string? BuildWebhookContent(Message message, string? replyReference)
+    public string? BuildWebhookContent(Message message, string? replyReference, bool includeStickers = false, bool includeTimestamp = false)
     {
         string? result;
         if (replyReference is null)
@@ -68,6 +71,23 @@ public sealed class MessageMigrator
             result = replyReference;
         else
             result = $"{replyReference}\n{message.Content}";
+
+        // Sticker fallback: append the sticker image URL(s) — Discord auto-embeds image links.
+        if (includeStickers && message.StickerItems is { Count: > 0 })
+        {
+            foreach (var sticker in message.StickerItems)
+            {
+                if (sticker.ImageUrl is not null)
+                    result = string.IsNullOrEmpty(result) ? sticker.ImageUrl : $"{result}\n{sticker.ImageUrl}";
+            }
+        }
+
+        // Original-timestamp footer as Discord subtext (-#) with a relative/absolute timestamp.
+        if (includeTimestamp)
+        {
+            var footer = $"-# \U0001F552 originally sent <t:{message.UnixTimestamp}:f>";
+            result = string.IsNullOrEmpty(result) ? footer : $"{result}\n{footer}";
+        }
 
         // Discord webhook content limit is 2000 characters
         if (result?.Length > 2000)

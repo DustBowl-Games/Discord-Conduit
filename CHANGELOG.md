@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sticker fallback: PNG/APNG/GIF stickers are re-posted as their image (`--no-stickers`
+  to disable); Lottie stickers can't be migrated. Voice messages migrate as their
+  audio attachment.
+- Original timestamps: `--timestamps` appends each message's original send time as
+  a footer.
 - Channel & category cloning: `discordconduit clone` creates the destination
   channel(s) and migrates messages in one step, including across servers
   (`--dest-guild`; `--category` to clone a whole category). Plain `migrate` also
