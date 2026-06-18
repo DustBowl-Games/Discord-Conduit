@@ -83,6 +83,34 @@ public sealed class ChannelEndpoints
     }
 
     /// <summary>
+    /// Lists all channels in a guild.
+    /// </summary>
+    /// <param name="guildId">The guild's snowflake ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The guild's channels.</returns>
+    public Task<List<Channel>> GetGuildChannelsAsync(string guildId, CancellationToken ct = default)
+    {
+        return _client.GetAsync<List<Channel>>($"/guilds/{guildId}/channels", ct);
+    }
+
+    /// <summary>
+    /// Creates a new channel in a guild. Requires the MANAGE_CHANNELS permission.
+    /// </summary>
+    /// <param name="guildId">The guild's snowflake ID.</param>
+    /// <param name="name">The channel name.</param>
+    /// <param name="type">The channel type (0 = text, 4 = category).</param>
+    /// <param name="parentId">Optional parent category ID.</param>
+    /// <param name="ct">Cancellation token.</param>
+    /// <returns>The created channel.</returns>
+    public Task<Channel> CreateChannelAsync(string guildId, string name, int type, string? parentId = null, CancellationToken ct = default)
+    {
+        return _client.PostJsonAsync<Channel>(
+            $"/guilds/{guildId}/channels",
+            new { name, type, parent_id = parentId },
+            ct);
+    }
+
+    /// <summary>
     /// Internal response wrapper for the active threads endpoint.
     /// </summary>
     internal sealed class ActiveThreadsResponse

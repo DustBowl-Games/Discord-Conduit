@@ -210,7 +210,27 @@ discordconduit export --profile mybot --channel CHANNEL_ID --format html --outpu
 
 The export accepts the same filter flags as `migrate` (`--from-author`, `--since`, `--until`, `--contains`, `--attachments-only`, `--no-bots`), so you can archive just a subset. Attachment links reference Discord's CDN (note: these URLs expire over time).
 
-### 6. Start the Bot for Slash Commands
+### 6. Clone a Channel or Category
+
+Cloning **creates** the destination channel(s) and migrates messages into them, in one step. The destination can be a **different server** (cross-server) — the bot must be a member of both.
+
+Clone a single channel into a server (optionally under a category):
+
+```bash
+discordconduit clone --profile mybot --source SOURCE_CHANNEL_ID --dest-guild DEST_GUILD_ID [--parent DEST_CATEGORY_ID]
+```
+
+Clone an entire category and all its text channels:
+
+```bash
+discordconduit clone --profile mybot --source SOURCE_CATEGORY_ID --dest-guild DEST_GUILD_ID --category
+```
+
+`clone` accepts the same `--dry-run`, `--no-reactions`, and filter flags as `migrate`. The bot needs **Manage Channels** in the destination server to create channels.
+
+> **Cross-server with `migrate`:** the plain `migrate` command also works across servers — just give a `--source` and `--dest` in different servers (the bot must be in both). `clone` is the convenience wrapper that also creates the destination.
+
+### 7. Start the Bot for Slash Commands
 
 To enable the interactive slash commands (Move This, Move This & Below, /move-range, /move-thread):
 
