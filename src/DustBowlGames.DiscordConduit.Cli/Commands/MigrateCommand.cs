@@ -22,6 +22,8 @@ internal static class MigrateCommand
         var noReactionsOption = new Option<bool>("--no-reactions") { Description = "Skip reaction migration" };
         var noPinsOption = new Option<bool>("--no-pins") { Description = "Don't re-pin messages that were pinned in the source" };
         var noPollsOption = new Option<bool>("--no-polls") { Description = "Don't re-create polls attached to messages" };
+        var noStickersOption = new Option<bool>("--no-stickers") { Description = "Don't post sticker images when a message has stickers" };
+        var timestampsOption = new Option<bool>("--timestamps") { Description = "Append each message's original send time as a footer" };
         var fromAuthorOption = new Option<string?>("--from-author") { Description = "Only migrate messages from this author (user ID)" };
         var sinceOption = new Option<string?>("--since") { Description = "Only migrate messages on/after this date/time (e.g. 2024-01-01 or 2024-01-01T12:00:00Z)" };
         var untilOption = new Option<string?>("--until") { Description = "Only migrate messages on/before this date/time" };
@@ -37,6 +39,8 @@ internal static class MigrateCommand
         command.Options.Add(noReactionsOption);
         command.Options.Add(noPinsOption);
         command.Options.Add(noPollsOption);
+        command.Options.Add(noStickersOption);
+        command.Options.Add(timestampsOption);
         command.Options.Add(fromAuthorOption);
         command.Options.Add(sinceOption);
         command.Options.Add(untilOption);
@@ -120,6 +124,8 @@ internal static class MigrateCommand
                 IncludeReactions: !noReactions,
                 IncludePins: !result.GetValue(noPinsOption),
                 IncludePolls: !result.GetValue(noPollsOption),
+                IncludeStickers: !result.GetValue(noStickersOption),
+                IncludeTimestamps: result.GetValue(timestampsOption),
                 Filter: filter.IsActive ? filter : null);
 
             // Preview

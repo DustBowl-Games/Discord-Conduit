@@ -117,7 +117,7 @@ public sealed class MigrationEngine
 
         if (stickerMessageCount > 0)
         {
-            warnings.Add($"{stickerMessageCount} message(s) contain stickers, which cannot be migrated via webhooks.");
+            warnings.Add($"{stickerMessageCount} message(s) contain stickers — PNG/APNG/GIF stickers are re-posted as images; animated (Lottie) stickers cannot be migrated.");
         }
 
         // Estimate: ~2 messages/sec, ~1 reaction/sec
@@ -509,7 +509,8 @@ public sealed class MigrationEngine
         CancellationToken ct)
     {
         var replyReference = _messageMigrator.BuildReplyReference(message, state.MessageIdMap);
-        var content = _messageMigrator.BuildWebhookContent(message, replyReference);
+        var content = _messageMigrator.BuildWebhookContent(message, replyReference,
+            includeStickers: state.Options.IncludeStickers, includeTimestamp: state.Options.IncludeTimestamps);
         var username = _messageMigrator.GetWebhookUsername(message);
         var avatarUrl = _messageMigrator.GetWebhookAvatarUrl(message);
 

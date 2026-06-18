@@ -985,7 +985,7 @@ public sealed class MoveCommandHandler
 
                 if (!message.IsRegularMessage) continue;
 
-                var content = _messageMigrator.BuildWebhookContent(message, replyReference: null);
+                var content = _messageMigrator.BuildWebhookContent(message, replyReference: null, includeStickers: true);
                 var username = _messageMigrator.GetWebhookUsername(message);
                 var avatarUrl = _messageMigrator.GetWebhookAvatarUrl(message);
 
