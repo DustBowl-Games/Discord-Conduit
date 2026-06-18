@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Undo for the bot move flow: after a move, an **Undo (remove the copies)** button
+  deletes the messages just reposted into the destination, leaving the source
+  originals untouched.
 - Sticker fallback: PNG/APNG/GIF stickers are re-posted as their image (`--no-stickers`
   to disable); Lottie stickers can't be migrated. Voice messages migrate as their
   audio attachment.

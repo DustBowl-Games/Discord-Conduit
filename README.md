@@ -18,6 +18,7 @@ Discord Conduit re-posts messages from a source channel or thread to a destinati
 - **Channel browser** — browse guilds, channels, and threads with side-by-side source/destination selection
 - **Migration preview** — see message counts, attachment sizes, oversized file warnings, and permission checks before starting
 - **Message migration** — re-post messages via webhook with original author identity preserved
+- **Undo a move** — the bot move flow offers an Undo button that removes the copies it just posted, leaving the originals untouched
 - **Attachment re-upload** — download and re-upload files (Discord CDN links expire)
 - **Reaction migration** — best-effort reaction preservation (added as bot, not original users)
 - **Pin preservation** — messages pinned in the source are re-pinned in the destination

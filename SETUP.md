@@ -261,7 +261,7 @@ For headless or container use where the OS credential store is unavailable, `bot
 
 When the bot is running (`discordconduit bot start`), the following commands are available in Discord.
 
-All move commands follow a multi-step flow: **select action** -> **choose destination** -> **confirm** -> **move** -> **delete or keep originals**.
+All move commands follow a multi-step flow: **select action** -> **choose destination** -> **confirm** -> **move** -> **delete originals / keep originals / undo**. The **Undo** option removes the copies the move just posted, leaving the source originals untouched (handy if you moved to the wrong place).
 
 ### Move This (Context Menu)
 

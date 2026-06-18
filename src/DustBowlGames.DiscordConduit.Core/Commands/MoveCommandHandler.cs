@@ -205,6 +205,9 @@ public sealed class MoveCommandHandler
                 case "move_keep":
                     await HandleKeepOriginalsAsync(interaction, customId).ConfigureAwait(false);
                     break;
+                case "move_undo":
+                    await HandleUndoAsync(interaction, customId).ConfigureAwait(false);
+                    break;
                 default:
                     _logger.Warning("Unknown component custom_id: {CustomId}", customId);
                     await TryRespondEphemeralAsync(interaction,
@@ -760,10 +763,10 @@ public sealed class MoveCommandHandler
                 break;
         }
 
-        List<string> movedIds;
+        MoveOutcome outcome;
         try
         {
-            movedIds = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct).ConfigureAwait(false);
+            outcome = await MoveMessagesToDestinationAsync(messages, webhookChannelId, threadId, ct).ConfigureAwait(false);
         }
         catch (HttpRequestException ex) when (ex.StatusCode == System.Net.HttpStatusCode.Forbidden)
         {
@@ -787,7 +790,7 @@ public sealed class MoveCommandHandler
             return;
         }
 
-        var movedCount = movedIds.Count;
+        var movedCount = outcome.MovedSourceIds.Count;
 
         // Leave a breadcrumb in the source channel
         try
@@ -806,12 +809,15 @@ public sealed class MoveCommandHandler
         // Store moved message IDs for potential deletion of the originals. Only the IDs are
         // retained on the session \u2014 the source channel is already on the session, and the
         // 14-day bulk-delete cutoff is recomputed from each snowflake ID at delete time.
-        session.MovedMessageIds = movedIds;
+        session.MovedMessageIds = outcome.MovedSourceIds;
+        // Keep the reposted (destination) message IDs so the move can be undone (copies removed).
+        session.RepostedMessageIds = outcome.RepostedIds;
+        session.PostedChannelId = threadId ?? webhookChannelId;
 
         // Edit original with result + cleanup buttons
         await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
         {
-            content = $"\u2705 **Moved {movedCount} message(s) to <#{displayDestId}>**\n\nWant me to clean up the originals?",
+            content = $"\u2705 **Moved {movedCount} message(s) to <#{displayDestId}>**\n\nClean up the originals \u2014 or **Undo** to remove the copies I just posted?",
             components = new object[]
             {
                 new
@@ -820,7 +826,8 @@ public sealed class MoveCommandHandler
                     components = new object[]
                     {
                         new { type = 2, style = 4, label = "Yes, delete originals", custom_id = ComponentId("move_delete", session.SessionId), emoji = new { name = "\U0001F5D1" } },
-                        new { type = 2, style = 2, label = "No, keep originals", custom_id = ComponentId("move_keep", session.SessionId) }
+                        new { type = 2, style = 2, label = "No, keep originals", custom_id = ComponentId("move_keep", session.SessionId) },
+                        new { type = 2, style = 4, label = "Undo (remove the copies)", custom_id = ComponentId("move_undo", session.SessionId), emoji = new { name = "\u21a9" } }
                     }
                 }
             }
@@ -923,6 +930,50 @@ public sealed class MoveCommandHandler
     // ─────────────────────────────────────────────────────────────────────────
 
     /// <summary>
+    /// Undoes a move by deleting the reposted (destination) copies it created, leaving the source
+    /// originals untouched. Offered alongside the delete/keep step right after a move completes.
+    /// </summary>
+    private async Task HandleUndoAsync(InteractionCreateEvent interaction, string customId)
+    {
+        var session = await GetValidatedSessionAsync(interaction, customId).ConfigureAwait(false);
+        if (session is null) return;
+
+        // Destructive step — require the clicking user to own the session (the keying already
+        // enforces this; fail closed if it is ever reached with a mismatched user).
+        if (GetUserId(interaction) != session.UserId)
+        {
+            await TryRespondEphemeralAsync(interaction, "You can't perform this action.").ConfigureAwait(false);
+            return;
+        }
+
+        if (session.RepostedMessageIds is not { Count: > 0 } || session.PostedChannelId is null)
+        {
+            await _interactionEndpoints.RespondAsync(interaction.Id, interaction.Token, new
+            {
+                type = 7,
+                data = new
+                {
+                    content = "Nothing to undo (session may have expired).",
+                    components = Array.Empty<object>(),
+                },
+            }).ConfigureAwait(false);
+            return;
+        }
+
+        await _interactionEndpoints.DeferComponentAsync(interaction.Id, interaction.Token).ConfigureAwait(false);
+
+        var count = session.RepostedMessageIds.Count;
+        await DeleteMessagesAsync(session.PostedChannelId, session.RepostedMessageIds).ConfigureAwait(false);
+        CleanupSession(interaction);
+
+        await _interactionEndpoints.EditOriginalAsync(_applicationId, interaction.Token, new
+        {
+            content = $"↩ Undone — removed {count} reposted message(s). The originals are untouched.",
+            components = Array.Empty<object>(),
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
     /// When moving into a forum, maps the source forum post's tags to the destination forum's tags
     /// by name, returning the destination tag IDs to apply (max 5). Returns an empty list when the
     /// source isn't a tagged forum post or no tag names line up. Best-effort; never throws.
@@ -959,14 +1010,19 @@ public sealed class MoveCommandHandler
         }
     }
 
+    /// <summary>The source and reposted-destination IDs of the messages a move actually copied.</summary>
+    /// <param name="MovedSourceIds">Source message IDs that were reposted (used for deleting originals).</param>
+    /// <param name="RepostedIds">The created destination message IDs (used for undoing the move).</param>
+    private sealed record MoveOutcome(List<string> MovedSourceIds, List<string> RepostedIds);
+
     /// <summary>
     /// Reposts the given messages via a temporary webhook and returns the source IDs that were
-    /// actually reposted (system, empty, and failed messages are excluded), so the caller can
-    /// safely offer to delete only the originals that were genuinely migrated.
+    /// actually reposted (system, empty, and failed messages are excluded) together with the new
+    /// destination message IDs, so the caller can offer to delete the originals or undo the copies.
     /// </summary>
-    private async Task<List<string>> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null, CancellationToken ct = default)
+    private async Task<MoveOutcome> MoveMessagesToDestinationAsync(List<Message> messages, string webhookChannelId, string? threadId = null, CancellationToken ct = default)
     {
-        if (messages.Count == 0) return new List<string>();
+        if (messages.Count == 0) return new MoveOutcome([], []);
 
         var webhook = await _webhookEndpoints.CreateWebhookAsync(webhookChannelId, "Conduit Move", ct).ConfigureAwait(false);
 
@@ -976,6 +1032,7 @@ public sealed class MoveCommandHandler
         }
 
         var movedIds = new List<string>();
+        var repostedIds = new List<string>();
 
         try
         {
@@ -1023,6 +1080,7 @@ public sealed class MoveCommandHandler
 
                 try
                 {
+                    Message reposted;
                     if (hasFiles)
                     {
                         var files = new List<(byte[] Data, string Filename, string? ContentType)>();
@@ -1032,7 +1090,7 @@ public sealed class MoveCommandHandler
                             files.Add(downloaded);
                         }
 
-                        await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
+                        reposted = await _webhookEndpoints.ExecuteWebhookWithFilesAsync(
                             webhook.Id, webhook.Token!,
                             () => _attachmentHandler.CreateMultipartContent(content, username, avatarUrl, richEmbeds, files, poll),
                             ct, threadId).ConfigureAwait(false);
@@ -1048,11 +1106,12 @@ public sealed class MoveCommandHandler
                             Poll = poll
                         };
 
-                        await _webhookEndpoints.ExecuteWebhookAsync(
+                        reposted = await _webhookEndpoints.ExecuteWebhookAsync(
                             webhook.Id, webhook.Token!, payload, ct, threadId).ConfigureAwait(false);
                     }
 
                     movedIds.Add(message.Id);
+                    repostedIds.Add(reposted.Id);
                 }
                 catch (OperationCanceledException)
                 {
@@ -1070,7 +1129,7 @@ public sealed class MoveCommandHandler
             catch { /* best effort */ }
         }
 
-        return movedIds;
+        return new MoveOutcome(movedIds, repostedIds);
     }
 
     private async Task DeleteMessagesAsync(string channelId, List<string> messageIds, CancellationToken ct = default)
