@@ -406,4 +406,35 @@ public class MoveCommandHandlerTests : IDisposable
 
         Assert.Null(_stateStore.Get(SessionKey));
     }
+
+    [Fact]
+    public async Task HandleComponentAsync_Undo_DeletesRepostedCopiesAndCleansUpSession()
+    {
+        _stateStore.Set(SessionKey, new InteractionSession
+        {
+            SessionId = "sess-1",
+            UserId = UserId,
+            GuildId = GuildId,
+            SourceChannelId = ChannelId,
+            TargetMessageId = TargetMessageId,
+            MessageCount = 1,
+            Action = "channel",
+            DestinationId = "dest-99",
+            RepostedMessageIds = ["r1", "r2"],
+            PostedChannelId = "dest-99"
+        });
+
+        // Routes for deleting the reposted copies (individual + bulk forms).
+        _handler.Respond(HttpMethod.Delete, "/channels/dest-99/messages", HttpStatusCode.NoContent);
+        _handler.Respond(HttpMethod.Post, "/channels/dest-99/messages/bulk-delete", HttpStatusCode.NoContent);
+
+        var interaction = CreateComponentInteraction("move_undo:sess-1");
+
+        await _sut.HandleComponentAsync(interaction);
+
+        // The session is cleaned up and a delete was issued against the destination channel.
+        Assert.Null(_stateStore.Get(SessionKey));
+        Assert.Contains(_handler.SentRequests, r =>
+            r.RequestUri?.ToString().Contains("/channels/dest-99/messages") ?? false);
+    }
 }

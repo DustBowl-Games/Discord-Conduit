@@ -42,6 +42,15 @@ public sealed class InteractionSession
     /// </summary>
     public List<string>? MovedMessageIds { get; set; }
 
+    /// <summary>
+    /// The IDs of the reposted (destination) messages, kept so the move can be undone by deleting
+    /// the copies it created. These live in <see cref="PostedChannelId"/>.
+    /// </summary>
+    public List<string>? RepostedMessageIds { get; set; }
+
+    /// <summary>The channel (or thread) the reposted messages were posted into.</summary>
+    public string? PostedChannelId { get; set; }
+
     /// <summary>When this session was created.</summary>
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.UtcNow;
 }
