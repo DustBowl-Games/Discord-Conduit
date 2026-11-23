@@ -15,7 +15,7 @@
 # ---------------------------------------------------------------------------
 # Base-image updates (including digest pinning) are managed by Dependabot's
 # docker ecosystem, so we intentionally track the floating :10.0 tag here.
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+FROM mcr.microsoft.com/dotnet/sdk:11.0 AS build
 WORKDIR /src
 
 # Copy solution + project files first and restore, so the (slow) restore layer
