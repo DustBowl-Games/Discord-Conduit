@@ -48,7 +48,7 @@ RUN dotnet publish src/DustBowlGames.DiscordConduit.Cli/DustBowlGames.DiscordCon
 # ---------------------------------------------------------------------------
 # Base-image updates (including digest pinning) are managed by Dependabot's
 # docker ecosystem, so we intentionally track the floating :10.0 tag here.
-FROM mcr.microsoft.com/dotnet/runtime:10.0 AS runtime
+FROM mcr.microsoft.com/dotnet/runtime:11.0 AS runtime
 
 # OCI image metadata.
 LABEL org.opencontainers.image.source="https://github.com/DustBowl-Games/Discord-Conduit" \
